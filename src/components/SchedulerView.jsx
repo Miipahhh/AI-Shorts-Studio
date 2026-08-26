@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, CheckCircle2, XCircle, ShieldAlert, Wand2, CalendarClock } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../lib/toast.js';
@@ -29,14 +29,35 @@ function formatLogTime(iso) {
   });
 }
 
-export default function SchedulerView({ onShortCreated }) {
+function parseCron(expr) {
+  if (!expr) return { time: '18:00', days: ['1','3','5'] };
+  const parts = expr.split(' ');
+  if (parts.length < 5) return { time: '18:00', days: ['1','3','5'] };
+  const min = parts[0].padStart(2, '0');
+  const hr = parts[1].padStart(2, '0');
+  const days = parts[4] === '*' ? ['0','1','2','3','4','5','6'] : parts[4].split(',');
+  return { time: `${hr}:${min}`, days };
+}
+
+function buildCron(time, days) {
+  if (!time) time = '18:00';
+  const [hr, min] = time.split(':');
+  const d = days.length === 7 ? '*' : (days.length === 0 ? '*' : days.sort().join(','));
+  return `${parseInt(min)} ${parseInt(hr)} * * ${d}`;
+}
+
+export default function SchedulerView() {
   const [config, setConfig] = useState(null);
   const [newTopic, setNewTopic] = useState('');
   const [newNiche, setNewNiche] = useState(NICHES[0]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [pregeneratingId, setPregeneratingId] = useState(null);
-  const [isPregeneratingAll, setIsPregeneratingAll] = useState(false);
+  const [scheduleTime, setScheduleTime] = useState('18:00');
+  const [scheduleDays, setScheduleDays] = useState(['1', '3', '5']);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+
+  const isExecuting = config?.isRunning || false;
+  const isPregeneratingAll = config?.isPregeneratingAll || false;
+  const pregeneratingId = config?.pregeneratingId || null;
 
   // Satu eksekusi = generate naskah + render + upload, jadi lajunya dipatok lebih lambat
   // dari sekadar generate naskah. Progres asli dipakai kalau rendernya lewat MoneyPrinterTurbo.
@@ -45,7 +66,12 @@ export default function SchedulerView({ onShortCreated }) {
   const fetchConfig = async () => {
     try {
       const res = await axios.get('/api/scheduler/config');
-      if (res.data?.success) setConfig(res.data.data);
+      if (res.data?.success) {
+        setConfig(res.data.data);
+        const { time, days } = parseCron(res.data.data.cronExpression);
+        setScheduleTime(time);
+        setScheduleDays(days);
+      }
     } catch (error) {
       toast.error('Gagal memuat konfigurasi jadwal.');
     } finally {
@@ -56,6 +82,55 @@ export default function SchedulerView({ onShortCreated }) {
   useEffect(() => {
     fetchConfig();
   }, []);
+
+  useEffect(() => {
+    if (isExecuting || isPregeneratingAll || pregeneratingId) {
+      const interval = setInterval(fetchConfig, 2500);
+      return () => clearInterval(interval);
+    }
+  }, [isExecuting, isPregeneratingAll, pregeneratingId]);
+
+  const prevLogLengthRef = useRef(0);
+  useEffect(() => {
+    if (config?.executionLog) {
+      const currentLen = config.executionLog.length;
+      if (prevLogLengthRef.current !== 0 && currentLen > prevLogLengthRef.current) {
+        const newLog = config.executionLog[0];
+        if (newLog.status === 'success') {
+          toast.success(`Eksekusi otomatis "${newLog.topic}" selesai!`, { duration: 5000 });
+        } else if (newLog.status === 'failed') {
+          toast.error(`Eksekusi otomatis "${newLog.topic}" gagal: ${newLog.message}`, { duration: 8000 });
+        } else if (newLog.status === 'blocked') {
+          toast(`Eksekusi "${newLog.topic}" ditahan: ${newLog.message}`, { type: 'info', duration: 8000 });
+        }
+      }
+      prevLogLengthRef.current = currentLen;
+    }
+  }, [config?.executionLog]);
+
+  const handleSaveSchedule = async () => {
+    setIsSavingSchedule(true);
+    try {
+      const cronExpression = buildCron(scheduleTime, scheduleDays);
+      const res = await axios.post('/api/scheduler/config', { cronExpression });
+      if (res.data?.success) {
+        setConfig(res.data.data);
+        toast.success('Jadwal berhasil disimpan.');
+      }
+    } catch (error) {
+      toast.error('Gagal menyimpan jadwal.');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
+  const toggleDay = (d) => {
+    if (scheduleDays.includes(d)) {
+      setScheduleDays(scheduleDays.filter(x => x !== d));
+    } else {
+      setScheduleDays([...scheduleDays, d]);
+    }
+  };
 
   const handleToggle = async () => {
     if (!config) return;
@@ -103,54 +178,31 @@ export default function SchedulerView({ onShortCreated }) {
   };
 
   const handlePregenerate = async (id) => {
-    setPregeneratingId(id);
     try {
       const res = await axios.post(`/api/scheduler/topic-queue/${id}/pregenerate`);
-      if (res.data?.success) {
-        setConfig(res.data.data);
-        toast.success('Naskah siap — auto-pilot tinggal render saat jadwalnya tiba.', { duration: 3000 });
-      }
+      if (res.data?.success) setConfig(res.data.data);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Gagal generate naskah topik ini.');
-    } finally {
-      setPregeneratingId(null);
     }
   };
 
   const handlePregenerateAll = async () => {
-    setIsPregeneratingAll(true);
     try {
       const res = await axios.post('/api/scheduler/topic-queue/pregenerate-all');
-      if (res.data?.success) {
-        const { done, failed, config: newConfig } = res.data.data;
-        setConfig(newConfig);
-        if (failed.length > 0) {
-          toast.error(`${done} naskah siap, ${failed.length} gagal (${failed.map((f) => f.topic).join(', ')}).`, { duration: 8000 });
-        } else if (done === 0) {
-          toast('Tidak ada topik yang perlu digenerate (semua sudah siap atau antrean kosong).', { duration: 3000 });
-        } else {
-          toast.success(`${done} naskah siap — auto-pilot tinggal render saat jadwalnya tiba.`, { duration: 4000 });
-        }
-      }
+      if (res.data?.success) setConfig(res.data.data);
     } catch (error) {
       toast.error('Gagal generate naskah batch.');
-    } finally {
-      setIsPregeneratingAll(false);
     }
   };
 
   const handleRunNow = async () => {
-    setIsExecuting(true);
     try {
       const res = await axios.post('/api/scheduler/run-now');
       if (res.data?.success) {
-        if (onShortCreated) onShortCreated(res.data.data);
-        fetchConfig();
+        setConfig(res.data.data);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Gagal menjalankan jadwal.');
-    } finally {
-      setIsExecuting(false);
     }
   };
 
@@ -178,7 +230,7 @@ export default function SchedulerView({ onShortCreated }) {
         <div>
           <h1 className="page-title">Jadwal</h1>
           <p className="page-sub">
-            Auto-pilot berjalan Senin, Rabu, dan Jumat pukul 18:00 WIB dari antrean topik di bawah.
+            Auto-pilot berjalan sesuai jadwal yang dikonfigurasi, mengambil dari antrean topik di bawah.
           </p>
         </div>
         <button className="btn" onClick={handleRunNow} disabled={isExecuting}>
@@ -201,10 +253,30 @@ export default function SchedulerView({ onShortCreated }) {
           </span>
           Auto-pilot aktif
         </label>
-        <p className="hint">
+        <p className="hint" style={{ marginBottom: 16 }}>
           Kalau aktif, sistem membuat dan mengupload video otomatis sesuai jadwal. Antrean kosong berarti
           topik diminta dari AI.
         </p>
+
+        <div className="schedule-editor" style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: '500', fontSize: '14px' }}>Hari Eksekusi</div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[{v:'1', l:'Sen'}, {v:'2', l:'Sel'}, {v:'3', l:'Rab'}, {v:'4', l:'Kam'}, {v:'5', l:'Jum'}, {v:'6', l:'Sab'}, {v:'0', l:'Min'}].map(day => (
+              <label key={day.v} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '13px' }}>
+                <input type="checkbox" checked={scheduleDays.includes(day.v)} onChange={() => toggleDay(day.v)} />
+                {day.l}
+              </label>
+            ))}
+          </div>
+          
+          <div style={{ fontWeight: '500', fontSize: '14px', marginTop: '8px' }}>Jam Eksekusi</div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <input type="time" className="input" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} style={{ width: '120px' }} />
+            <button className="btn sm" onClick={handleSaveSchedule} disabled={isSavingSchedule}>
+              {isSavingSchedule ? 'Menyimpan...' : 'Simpan Jadwal'}
+            </button>
+          </div>
+        </div>
 
         {progress.visible && (
           <ProgressBar

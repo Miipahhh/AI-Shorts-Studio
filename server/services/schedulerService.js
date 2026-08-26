@@ -30,17 +30,20 @@ class SchedulerService {
     // ini, kegagalan auto-pilot yang jalan tanpa pengawasan cuma kelihatan di log server yang
     // tidak pernah dilihat siapa pun, jadi bisa diam-diam berhenti berfungsi berminggu-minggu.
     this.executionLog = saved.executionLog || [];
-    this.cronExpression = '0 18 * * 1,3,5'; // Senin, Rabu, Jumat jam 18:00
+    this.cronExpression = saved.cronExpression || '0 18 * * 1,3,5'; // Default: Senin, Rabu, Jumat jam 18:00
     this.cronJob = null;
     // Cegah cron dan trigger manual ("Jalankan sekarang") jalan bertabrakan — tanpa ini,
     // keduanya bisa sama-sama mengambil topik PENDING yang sama dan memprosesnya dua kali.
     this.isRunning = false;
+    this.isPregeneratingAll = false;
+    this.pregeneratingId = null;
   }
 
   /** Simpan status auto-pilot, antrean, & riwayat eksekusi ke database.json supaya tidak hilang saat restart. */
   persist() {
     dbService.saveSchedulerConfig({
       isAutoPilotEnabled: this.isAutoPilotEnabled,
+      cronExpression: this.cronExpression,
       topicQueue: this.topicQueue,
       executionLog: this.executionLog
     });
@@ -84,14 +87,25 @@ class SchedulerService {
       cronExpression: this.cronExpression,
       topicQueue: this.topicQueue,
       executionLog: this.executionLog,
-      nextScheduledRun: this.calculateNextRunTime()
+      nextScheduledRun: this.calculateNextRunTime(),
+      isRunning: this.isRunning,
+      isPregeneratingAll: this.isPregeneratingAll,
+      pregeneratingId: this.pregeneratingId
     };
   }
 
-  updateConfig({ isAutoPilotEnabled, topicQueue }) {
+  updateConfig({ isAutoPilotEnabled, topicQueue, cronExpression }) {
+    let restartNeeded = false;
     if (isAutoPilotEnabled !== undefined) this.isAutoPilotEnabled = isAutoPilotEnabled;
     if (topicQueue) this.topicQueue = topicQueue;
+    if (cronExpression && cronExpression !== this.cronExpression) {
+      this.cronExpression = cronExpression;
+      restartNeeded = true;
+    }
     this.persist();
+    if (restartNeeded && this.onShortCreated) {
+      this.startScheduler(this.onShortCreated);
+    }
     return this.getSchedulerConfig();
   }
 
@@ -116,9 +130,16 @@ class SchedulerService {
    * cuma sekarang sudah ada naskahnya).
    */
   async pregenerateTopic(topicId) {
+    this.pregeneratingId = topicId;
     const item = this.topicQueue.find((t) => t.id === topicId);
-    if (!item) throw new Error('Topik tidak ditemukan di antrean.');
-    if (item.status === 'PROCESSING') throw new Error('Topik ini sedang diproses, tidak bisa digenerate ulang sekarang.');
+    if (!item) {
+      this.pregeneratingId = null;
+      throw new Error('Topik tidak ditemukan di antrean.');
+    }
+    if (item.status === 'PROCESSING') {
+      this.pregeneratingId = null;
+      throw new Error('Topik ini sedang diproses, tidak bisa digenerate ulang sekarang.');
+    }
 
     item.status = 'GENERATING';
     this.persist();
@@ -127,10 +148,12 @@ class SchedulerService {
       item.aiContent = aiContent;
       item.status = 'READY';
       this.persist();
+      this.pregeneratingId = null;
       return item;
     } catch (error) {
       item.status = 'PENDING';
       this.persist();
+      this.pregeneratingId = null;
       throw error;
     }
   }
@@ -142,6 +165,7 @@ class SchedulerService {
    * aiService.js). Satu topik gagal tidak menghentikan yang lain — dikumpulkan di `failed`.
    */
   async pregenerateAll() {
+    this.isPregeneratingAll = true;
     const targets = this.topicQueue.filter((t) => t.status === 'PENDING');
     const results = { done: 0, failed: [] };
     for (const item of targets) {
@@ -149,9 +173,10 @@ class SchedulerService {
         await this.pregenerateTopic(item.id);
         results.done += 1;
       } catch (error) {
-        results.failed.push({ id: item.id, topic: item.topic, message: error.message });
+        results.failed.push({ topic: item.topic, error: error.message });
       }
     }
+    this.isPregeneratingAll = false;
     return results;
   }
 

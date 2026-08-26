@@ -59,6 +59,7 @@ class DatabaseService {
       },
       schedulerConfig: {
         isAutoPilotEnabled: true,
+        cronExpression: '0 18 * * 1,3,5',
         topicQueue: [],
         // Riwayat eksekusi auto-pilot (berhasil/gagal/diblokir keamanan), terbaru duluan, maks
         // 30 entri — supaya kegagalan auto-pilot yang jalan tanpa pengawasan tidak cuma

@@ -17,7 +17,7 @@ echo yang dipakai AI Shorts Studio untuk mencocokkan naskah dengan footage video
 echo asli dari Pexels atau Pixabay, lalu membakar subtitle dan audio TTS otomatis.
 echo.
 
-set MPT_DIR=%~dp0MoneyPrinterTurbo
+set MPT_DIR=%~dp0..\MoneyPrinterTurbo
 
 where git >nul 2>nul
 if %errorlevel% neq 0 (

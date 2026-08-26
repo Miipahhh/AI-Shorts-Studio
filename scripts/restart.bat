@@ -28,4 +28,4 @@ timeout /t 2 /nobreak >nul
 echo Selesai. Memulai ulang semuanya...
 echo.
 
-call "%~dp0start.bat"
+call "%~dp0..\start.bat"

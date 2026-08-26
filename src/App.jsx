@@ -58,6 +58,9 @@ export default function App() {
   const showStudioPill = activeTab !== 'studio' && (
     studio.isGenerating || studio.isRendering || studio.isFactChecking || studio.isFixingNarration
   );
+  const showSchedulerPill = activeTab !== 'scheduler' && systemStatus?.schedulerConfig && (
+    systemStatus.schedulerConfig.isRunning || systemStatus.schedulerConfig.isPregeneratingAll || systemStatus.schedulerConfig.pregeneratingId
+  );
 
   useEffect(() => {
     initStudio();
@@ -79,9 +82,13 @@ export default function App() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 15000);
-    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const isSchedulerActive = systemStatus?.schedulerConfig?.isRunning || systemStatus?.schedulerConfig?.isPregeneratingAll;
+    const interval = setInterval(fetchStatus, isSchedulerActive ? 2500 : 15000);
+    return () => clearInterval(interval);
+  }, [systemStatus?.schedulerConfig?.isRunning, systemStatus?.schedulerConfig?.isPregeneratingAll]);
 
   const handleShortCreated = (newShort) => {
     const upload = newShort.uploadResult;
@@ -200,6 +207,15 @@ export default function App() {
         </button>
       )}
 
+      {showSchedulerPill && (
+        <button className="studio-pill" style={{ top: showStudioPill ? '106px' : '64px' }} onClick={() => goTo('scheduler')}>
+          <span className="spinner" />
+          <span>
+            {systemStatus.schedulerConfig.isRunning ? 'Jadwal memproses…' : 'Generate batch…'}
+          </span>
+        </button>
+      )}
+
       <main className="page">
         {activeTab === 'dashboard' && (
           <DashboardView
@@ -225,7 +241,7 @@ export default function App() {
             fixNarrationProgress={fixNarrationProgress}
           />
         )}
-        {activeTab === 'scheduler' && <SchedulerView onShortCreated={handleShortCreated} />}
+        {activeTab === 'scheduler' && <SchedulerView />}
         {activeTab === 'history' && <HistoryView onNavigate={setActiveTab} />}
         {activeTab === 'settings' && <SettingsView onSaved={fetchStatus} />}
       </main>

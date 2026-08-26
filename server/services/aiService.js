@@ -148,21 +148,23 @@ Tugasmu adalah membuat konten video vertikal (9:16) berdurasi ${targetDurationLa
 ${continuationBlock}${searchContextBlock}Buat jumlah scene sesuai kebutuhan supaya menutupi SELURUH durasi target di atas — jangan berhenti di 4 scene kalau durasinya panjang. Untuk konten ini, buat ${targetSceneGuidance}. Tiap objek scene memakai struktur JSON PERSIS seperti contoh di bawah (sceneNumber, timeRange, visualDescription, captionText, narrationSegment), tinggal ditambah sejumlah scene yang dibutuhkan.
 
 GAYA BAHASA NARASI — PALING PENTING, ini yang bakal dibacakan suara AI, jadi harus terdengar seperti orang ngobrol, bukan teks yang dibaca robot:
+- HOOK AWAL (3 DETIK PERTAMA): Kalimat pertama WAJIB sangat provokatif, mengejutkan, atau memicu rasa penasaran ekstrem. Langsung tembak inti masalah/fakta tergila. HARAM menyapa penonton di awal kalimat.
 - Pakai bahasa lisan sehari-hari yang santai. Sapa penonton dengan "kamu".
 - Panjang kalimat DIVARIASIKAN: selingi kalimat pendek (3-6 kata) di antara kalimat panjang, supaya ada ritme dan tempat menarik napas.
 - Pakai koma untuk jeda alami, dan titik tiga (...) kalau butuh jeda dramatis. Jangan bikin kalimat beranak-pinak dengan banyak anak kalimat.
 - Maksimal 2 tanda seru di SELURUH naskah. Nada semangat dibentuk lewat pilihan kata, bukan lewat tanda seru bertubi-tubi.
-- HARAM pakai klise pembuka: "Tahukah kamu", "Pernahkah kamu", "Di era digital ini", "Siapa sangka", "Mari kita simak", "Tanpa berlama-lama lagi".
+- HARAM pakai klise pembuka: "Tahukah kamu", "Pernahkah kamu", "Di era digital ini", "Siapa sangka", "Mari kita simak", "Tanpa berlama-lama lagi", "Halo teman-teman".
 - Hindari kata kaku/formal: "merupakan", "sehingga", "oleh karena itu", "dengan demikian", "sangat luar biasa", "hal tersebut". Ganti dengan versi lisan: "adalah/itu", "jadi", "makanya", "gila sih", "itu".
 - Boleh pakai kata sambung obrolan sesekali di awal kalimat: "Nah", "Tapi", "Soalnya", "Jadi", "Dan anehnya".
 - Jangan mengulang subjek yang sama di tiap kalimat, dan JANGAN tutup tiap scene dengan kalimat ajakan — kecuali scene paling terakhir (lihat aturan wajib di bawah).
 - Naskah harus mengalir antar scene: kalimat terakhir sebuah scene menyambung ke scene berikutnya, bukan berdiri sendiri-sendiri.
 - JANGAN tulis narasi dengan HURUF KAPITAL SEMUA (kapital semua hanya untuk "captionText" di layar, bukan untuk suara).
 
-WAJIB — SCENE PALING TERAKHIR harus ditutup dengan ajakan follow, supaya video tidak berhenti polos begitu saja:
-- Ajakannya singkat dan natural, menyatu dengan gaya bicara naskah (bukan diselipkan tiba-tiba dan berasa template).
+WAJIB — SCENE PALING TERAKHIR harus memicu INTERAKSI lalu ditutup dengan ajakan follow:
+- Akhiri dengan SATU pertanyaan terbuka atau pernyataan sedikit kontroversial yang memancing orang untuk berdebat atau membagikan opini mereka di kolom komentar.
+- Setelah pertanyaan itu, langsung berikan ajakan follow secara singkat dan natural.
 - Pakai kata "follow" (bukan "subscribe" — ini konten Facebook Page, bukan YouTube), tapi JANGAN sebut nama akun/Page tertentu, cukup ajakan generik semacam "follow biar nggak ketinggalan" atau variasi lain yang cocok sama topiknya.
-- Ini satu-satunya scene yang boleh berisi ajakan — jangan diulang di scene lain.
+- Ini satu-satunya scene yang boleh berisi interaksi/ajakan — jangan diulang di scene lain.
 
 KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan skema:
 {
@@ -542,8 +544,7 @@ Kategori yang WAJIB dicek:
 - Kekerasan atau instruksi aktivitas berbahaya (self-harm, senjata, zat ilegal, dll)
 - Konten seksual/dewasa yang tidak pantas untuk audiens umum
 - Harassment/perundungan terhadap individu atau kelompok tertentu
-- Misinformasi berbahaya (klaim medis/kesehatan palsu, teori konspirasi berbahaya yang disajikan sebagai fakta)
-- Clickbait menyesatkan yang menjanjikan sesuatu yang tidak ada di kontennya
+- Misinformasi medis/kesehatan yang berbahaya (teori konspirasi hiburan/sejarah boleh)
 
 Judul: "${title}"
 Deskripsi: "${description}"
@@ -558,7 +559,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
   "concerns": ["deskripsi singkat tiap masalah spesifik yang ditemukan, kosongkan array kalau aman"],
   "overallNote": "1-2 kalimat kesimpulan"
 }
-"risk" wajib "aman" kalau memang tidak ada masalah — jangan mengarang masalah supaya kelihatan teliti. Konten fiksi/misteri/horor yang jelas-jelas fiksi TIDAK otomatis "berisiko" hanya karena temanya gelap.`;
+"risk" wajib "aman" kalau memang tidak ada masalah — jangan mengarang masalah supaya kelihatan teliti. Konten fiksi/misteri/horor yang jelas-jelas fiksi TIDAK otomatis "berisiko" hanya karena temanya gelap. Judul yang provokatif, hiperbola, clickbait, atau menyebut "sejarah tersembunyi" adalah DISENGAJA untuk marketing media sosial dan SAMA SEKALI BUKAN PELANGGARAN. Jangan blokir konten karena clickbait.`;
 
     const headers = { 'Content-Type': 'application/json' };
     if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -575,6 +576,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           temperature: 0.1,
           max_tokens: 800,
           stream: false,
+          response_format: { type: 'json_object' },
           reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout: 45000 }

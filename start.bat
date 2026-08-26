@@ -27,7 +27,7 @@ if %errorlevel%==0 (
     echo       Sudah berjalan.
 ) else (
     echo       Belum jalan. Dibuka di jendela baru...
-    start "9Router" cmd /k "%~dp0start-9router.bat"
+    start "9Router" cmd /k "%~dp0scripts\start-9router.bat"
 )
 
 echo [4/6] Memeriksa MoneyPrinterTurbo - footage stok asli, port 8080...
@@ -37,10 +37,10 @@ if %errorlevel%==0 (
 ) else (
     if exist "MoneyPrinterTurbo\main.py" (
         echo       Belum jalan. Dibuka di jendela baru, siap dipakai setelah selesai memuat...
-        start "MoneyPrinterTurbo" cmd /k "%~dp0start-moneyprinter.bat"
+        start "MoneyPrinterTurbo" cmd /k "%~dp0scripts\start-moneyprinter.bat"
     ) else (
         echo       Belum terpasang, dilewati. Sumber video "Template FFmpeg" tetap bisa dipakai.
-        echo       Kalau mau footage stok asli, jalankan start-moneyprinter.bat sekali untuk memasangnya.
+        echo       Kalau mau footage stok asli, jalankan scripts\start-moneyprinter.bat sekali untuk memasangnya.
     )
 )
 
@@ -58,7 +58,7 @@ echo   9Router         : http://localhost:20128
 echo   MoneyPrinter    : http://127.0.0.1:8080
 echo.
 echo   Biarkan jendela ini terbuka selama memakai aplikasi.
-echo   Tekan Ctrl+C untuk menghentikan, atau jalankan restart.bat untuk mulai ulang.
+echo   Tekan Ctrl+C untuk menghentikan, atau jalankan scripts\restart.bat untuk mulai ulang.
 echo -------------------------------------------------------------------------
 echo.
 

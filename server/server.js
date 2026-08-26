@@ -568,19 +568,20 @@ app.post('/api/scheduler/topic-queue/:id/pregenerate', async (req, res) => {
 });
 
 // Sama seperti di atas tapi untuk semua topik PENDING sekaligus, dijalankan berurutan.
-app.post('/api/scheduler/topic-queue/pregenerate-all', async (req, res) => {
-  const result = await schedulerService.pregenerateAll();
-  res.json({ success: true, data: { ...result, config: schedulerService.getSchedulerConfig() } });
+app.post('/api/scheduler/topic-queue/pregenerate-all', (req, res) => {
+  // Dijalankan asinkron tanpa menunggu selesai (supaya koneksi tidak putus jika lama)
+  schedulerService.pregenerateAll().catch(e => console.error('[Scheduler] Pregenerate All error:', e));
+  res.json({ success: true, data: schedulerService.getSchedulerConfig() });
 });
 
 // Jalankan Eksekusi Jadwal Otomatis Sekarang (Untuk Testing / Trigger Manual)
-app.post('/api/scheduler/run-now', async (req, res) => {
-  try {
-    const executedRecord = await schedulerService.runNextScheduledJob();
-    res.json({ success: true, data: executedRecord });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+app.post('/api/scheduler/run-now', (req, res) => {
+  if (schedulerService.isRunning) {
+    return res.status(400).json({ success: false, message: 'Eksekusi sedang berjalan.' });
   }
+  // Dijalankan asinkron
+  schedulerService.runNextScheduledJob().catch(e => console.error('[Scheduler] Run Now error:', e));
+  res.json({ success: true, data: schedulerService.getSchedulerConfig() });
 });
 
 // Multer melempar error (mis. file kelewat besar) lewat next(err), bukan lewat handler biasa —
