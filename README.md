@@ -4,7 +4,7 @@ AI Shorts Studio adalah aplikasi berbasis web (React + Express) yang dirancang u
 
 ## Fitur Utama
 
-- Studio AI: Pembuatan judul, deskripsi SEO, tag, dan naskah per-adegan menggunakan model AI (mendukung 9Router/OpenRouter), dilengkapi dengan generator lokal sebagai cadangan.
+- Studio AI: Pembuatan judul, deskripsi SEO, tag, dan naskah per-adegan menggunakan model AI (ditenagai oleh Google Gemini resmi atau OpenRouter), dilengkapi dengan generator lokal sebagai cadangan.
 - Mode Rendering Video:
   1. Template FFmpeg: Rendering instan dengan latar belakang bertema dan teks caption.
   2. AI Video (fal.ai): Pembuatan aset visual generatif berdasarkan topik tiap adegan.
@@ -43,7 +43,7 @@ Selama komputer menyala, sistem penjadwalan (Auto-Pilot) akan berjalan secara ot
    ```bash
    start.bat
    ```
-   Script ini akan memproses backend (port 3001) dan frontend (port 5173) secara bersamaan, serta memastikan layanan 9Router aktif di port 20128.
+   Script ini akan memproses backend (port 3001) dan frontend (port 5173) secara bersamaan.
 
 Akses antarmuka aplikasi melalui web browser pada alamat: `http://localhost:5173`.
 
@@ -51,10 +51,12 @@ Akses antarmuka aplikasi melalui web browser pada alamat: `http://localhost:5173
 
 Pengaturan kredensial untuk layanan eksternal dikelola sepenuhnya melalui Tab Pengaturan pada antarmuka aplikasi. Data ini disimpan secara aman dan terenkripsi secara logis di dalam `server/data/database.json`.
 
-- 9Router (AI Utama): Dijalankan otomatis melalui `start.bat`. Konfigurasi API provider dapat dikelola melalui `http://localhost:20128`.
-- Facebook Page: Membutuhkan Page Access Token dengan izin `pages_manage_posts` dan `pages_read_engagement` dari platform Meta for Developers.
-- fal.ai: Membutuhkan API Key untuk mengaktifkan fitur render AI generatif.
-- Tavily: Membutuhkan API Key untuk fitur injeksi fakta aktual pada naskah.
+- **Provider AI Naskah**:
+  - **Google Gemini (Default & Sangat Direkomendasikan)**: Menggunakan API Key gratis langsung dari [Google AI Studio](https://aistudio.google.com). Base URL disetel ke `https://generativelanguage.googleapis.com/v1beta/openai` dengan model `gemini-2.0-flash` atau `gemini-1.5-flash`.
+  - **OpenRouter**: Mendukung berbagai model cloud alternatif (`https://openrouter.ai/api/v1`).
+- **Facebook Page**: Membutuhkan Page Access Token dengan izin `pages_manage_posts` dan `pages_read_engagement` dari platform Meta for Developers.
+- **fal.ai**: Membutuhkan API Key untuk mengaktifkan fitur render AI generatif.
+- **Tavily**: Membutuhkan API Key untuk fitur injeksi fakta aktual pada naskah.
 
 ## Struktur Direktori
 

@@ -16,9 +16,9 @@ const SENSITIVE_TREND_KEYWORDS = /gempa|tsunami|korban tewas|korban jiwa|meningg
 class AIService {
   constructor() {
     const savedConfig = dbService.getAiConfig() || {};
-    this.apiEndpoint = savedConfig.aiEndpoint || 'https://api.openrouter.ai/api/v1';
+    this.apiEndpoint = savedConfig.aiEndpoint || 'https://generativelanguage.googleapis.com/v1beta/openai';
     this.apiKey = savedConfig.apiKey || '';
-    this.model = savedConfig.model || 'oc/deepseek-v4-flash-free';
+    this.model = savedConfig.model || 'gemini-2.0-flash';
   }
 
   /**
@@ -243,12 +243,9 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
             temperature: 0.7,
             max_tokens: 8000,
             stream: false,
-            // Sebagian model gratis di balik combo 9Router (mis. nemotron-3-ultra-free) adalah
-            // model "reasoning" yang diam-diam menghabiskan seluruh max_tokens buat proses
-            // berpikir internal sebelum sempat menulis jawaban asli (finish_reason "length",
-            // content kepotong) — ini penyebab utama generate kadang nyangkut lama lalu gagal
-            // parse JSON. Matikan reasoning-nya supaya model langsung jawab.
-            reasoning: { exclude: true, enabled: false }
+            ...(this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('openrouter')
+              ? { reasoning: { exclude: true, enabled: false } }
+              : {})
           },
           { headers, timeout: 340000 }
         );
@@ -257,82 +254,44 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
         const parsed = this.parseAiJson(rawContent);
         return {
           ...parsed,
-          generatedBy: `${this.model} via 9Router${generatedBySuffix}`,
+          generatedBy: `${this.model}${generatedBySuffix}`,
           generatedAt: new Date().toISOString()
         };
       } catch (error) {
         lastErrorMessage = this.describeAxiosError(error);
         console.warn(`AI API call gagal dengan model ${this.model} (percobaan ${attempt}/2):`, lastErrorMessage);
         if (attempt === 2) {
-          // Fallback 1: coba model 'hermes' (combo 9Router — paling stabil)
-          if (this.model !== 'hermes') {
+          // Fallback jika model utama gagal
+          const fallbackCandidates = this.apiEndpoint.includes('googleapis')
+            ? (this.model === 'gemini-2.0-flash' ? ['gemini-1.5-flash', 'gemini-1.5-pro'] : ['gemini-2.0-flash', 'gemini-1.5-flash'])
+            : ['gemini-2.0-flash', 'gemini-1.5-flash'];
+
+          for (const modelCandidate of fallbackCandidates) {
+            if (modelCandidate === this.model) continue;
             try {
               const response = await axios.post(
                 `${this.apiEndpoint}/chat/completions`,
                 {
-                  model: 'hermes',
+                  model: modelCandidate,
                   messages: [
                     { role: 'system', content: 'You are an AI short-video content expert. Always return valid JSON only.' },
                     { role: 'user', content: prompt }
                   ],
                   temperature: 0.7,
-                  stream: false,
-                  reasoning: { exclude: true, enabled: false }
+                  stream: false
                 },
-                { headers, timeout: 150000 }
+                { headers, timeout: 60000 }
               );
               const rawContent = response.data?.choices?.[0]?.message?.content || '';
               const parsed = this.parseAiJson(rawContent);
               return {
                 ...parsed,
-                generatedBy: `hermes (9Router) — fallback dari ${this.model}${generatedBySuffix}`,
+                generatedBy: `${modelCandidate} (fallback)${generatedBySuffix}`,
                 generatedAt: new Date().toISOString()
               };
             } catch (err2) {
               lastErrorMessage = this.describeAxiosError(err2);
-              console.warn('Fallback ke hermes juga gagal:', lastErrorMessage);
-            }
-          }
-
-          // Fallback 2: coba model cadangan lain.
-          // Kalau endpoint-nya 9Router lokal, ID model OpenRouter (meta-llama/..., dll) TIDAK
-          // ada di 9Router — selalu gagal "no active credentials", jadi bukan cadangan yang
-          // berguna. Model individual (qwen/gh/dll) di 9Router JUGA sering tanpa kredensial di
-          // instalasi lokal — cuma model "combo" (hermes/Free/RequirementBusinessAnalysis) yang
-          // benar-benar tersambung ke provider asli. RequirementBusinessAnalysis diverifikasi
-          // rutenya ke Claude Sonnet — cepat & stabil, jadi cadangan paling masuk akal.
-          const isLocal9Router = this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('127.0.0.1');
-          const freeModels = isLocal9Router
-            ? ['RequirementBusinessAnalysis', 'Free']
-            : ['meta-llama/llama-3.1-8b-instruct:free', 'google/gemma-2-9b-it:free', 'mistralai/mistral-7b-instruct:free'];
-          if (isLocal9Router || (this.apiKey && this.apiKey.length > 5)) {
-            for (const modelCandidate of freeModels) {
-              try {
-                const response = await axios.post(
-                  `${this.apiEndpoint}/chat/completions`,
-                  {
-                    model: modelCandidate,
-                    messages: [
-                      { role: 'system', content: 'You are an AI short-video content expert. Always return valid JSON only.' },
-                      { role: 'user', content: prompt }
-                    ],
-                    temperature: 0.7,
-                    stream: false,
-                    reasoning: { exclude: true, enabled: false }
-                  },
-                  { headers, timeout: 60000 }
-                );
-                const rawContent = response.data?.choices?.[0]?.message?.content || '';
-                const parsed = this.parseAiJson(rawContent);
-                return {
-                  ...parsed,
-                  generatedBy: (isLocal9Router ? `${modelCandidate} via 9Router (fallback cepat)` : `Free AI (${modelCandidate}) via OpenRouter`) + generatedBySuffix,
-                  generatedAt: new Date().toISOString()
-                };
-              } catch (err2) {
-                lastErrorMessage = this.describeAxiosError(err2);
-                console.warn(`Fallback model ${modelCandidate} juga gagal:`, lastErrorMessage);
-              }
+              console.warn(`Fallback model ${modelCandidate} gagal:`, lastErrorMessage);
             }
           }
         } // end if (attempt === 2)
@@ -403,7 +362,9 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           temperature: 0.2,
           max_tokens: 1800,
           stream: false,
-          reasoning: { exclude: true, enabled: false }
+          ...(this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('openrouter')
+            ? { reasoning: { exclude: true, enabled: false } }
+            : {})
         },
         { headers, timeout }
       );
@@ -411,18 +372,10 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
       return this.parseAiJson(rawContent);
     };
 
-    // Model "combo" (mis. RequirementBusinessAnalysis) me-routing acak ke beberapa provider
-    // underlying di 9Router, jadi satu percobaan gagal bukan berarti modelnya benar-benar
-    // tidak bisa dipakai. Sebelumnya cuma 2 percobaan @60s (120s total) — jauh lebih tipis
-    // dari generateShortContent (bisa 800+ detik lintas beberapa model), padahal 9Router
-    // sama-sama sering lambat buat kedua jenis panggilan itu. Diperpanjang jadi 4 percobaan
-    // @90s (termasuk 2x di model utama, sama seperti pola generateShortContent) supaya cek
-    // fakta tidak gagal total cuma karena kurang sabar menunggu 9Router yang sama.
     const attemptModels = [
       this.model,
       this.model,
-      this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes',
-      this.model === 'Free' ? 'RequirementBusinessAnalysis' : 'Free'
+      this.model === 'gemini-2.0-flash' ? 'gemini-1.5-flash' : 'gemini-2.0-flash'
     ];
 
     let lastError;
@@ -432,7 +385,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
         return {
           claims: Array.isArray(parsed.claims) ? parsed.claims : [],
           overallNote: parsed.overallNote || '',
-          checkedBy: `${attemptModels[i]} via 9Router${i > 0 ? ` (percobaan ke-${i + 1})` : ''}${checkedBySuffix}`,
+          checkedBy: `${attemptModels[i]}${i > 0 ? ` (percobaan ke-${i + 1})` : ''}${checkedBySuffix}`,
           usedWebSearch: Boolean(searchContext),
           checkedAt: new Date().toISOString()
         };
@@ -508,13 +461,13 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
     // menabrak provider yang lagi tidak tersedia di satu percobaan.
     try {
       const parsed = await callModel(this.model, 180000);
-      return { ...parsed, generatedBy: `${this.model} via 9Router (direvisi sesuai cek fakta)`, generatedAt: new Date().toISOString() };
+      return { ...parsed, generatedBy: `${this.model} (direvisi sesuai cek fakta)`, generatedAt: new Date().toISOString() };
     } catch (error) {
       console.warn('Revisi naskah gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
       try {
-        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+        const fallbackModel = this.model === 'gemini-2.0-flash' ? 'gemini-1.5-flash' : 'gemini-2.0-flash';
         const parsed = await callModel(fallbackModel, 180000);
-        return { ...parsed, generatedBy: `${fallbackModel} via 9Router (direvisi sesuai cek fakta, percobaan ke-2)`, generatedAt: new Date().toISOString() };
+        return { ...parsed, generatedBy: `${fallbackModel} (direvisi sesuai cek fakta, percobaan ke-2)`, generatedAt: new Date().toISOString() };
       } catch (error2) {
         throw new Error(`Gagal merevisi naskah: ${this.describeAxiosError(error2)}`);
       }
@@ -577,7 +530,9 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           max_tokens: 800,
           stream: false,
           response_format: { type: 'json_object' },
-          reasoning: { exclude: true, enabled: false }
+          ...(this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('openrouter')
+            ? { reasoning: { exclude: true, enabled: false } }
+            : {})
         },
         { headers, timeout: 45000 }
       );
@@ -593,7 +548,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
         risk,
         concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
         overallNote: parsed.overallNote || '',
-        checkedBy: `${this.model} via 9Router`,
+        checkedBy: `${this.model}`,
         checkedAt: new Date().toISOString()
       };
     } catch (error) {
@@ -712,10 +667,10 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
   /** Ekstrak pesan error yang berguna dari axios error (timeout, connection refused, body API, dll) */
   describeAxiosError(err) {
     if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
-      return `Timeout — 9Router/AI tidak merespons dalam batas waktu (${err.message})`;
+      return `Timeout — AI tidak merespons dalam batas waktu (${err.message})`;
     }
     if (err.code === 'ECONNREFUSED') {
-      return `Connection refused — 9Router tidak berjalan di endpoint yang dikonfigurasi (${err.message})`;
+      return `Connection refused — Server AI tidak dapat dihubungi (${err.message})`;
     }
     const data = err.response?.data;
     if (data) {

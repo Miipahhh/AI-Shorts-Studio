@@ -745,6 +745,7 @@ code {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 14px 16px;
+  min-width: 0;
 }
 
 .stat-label {
@@ -757,12 +758,18 @@ code {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat-note {
   margin-top: 2px;
   font-size: 12.5px;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ============================== LISTS ============================== */

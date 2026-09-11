@@ -4,7 +4,11 @@ import axios from 'axios';
 import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
 
-const FALLBACK_MODELS = ['hermes', 'Free', 'RequirementBusinessAnalysis'];
+const FALLBACK_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro'
+];
 
 const VIDEO_PROVIDERS = [
   { id: 'template', label: 'Template FFmpeg', note: 'Gratis, instan' },
@@ -16,9 +20,9 @@ export default function SettingsView({ onSaved }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // AI
-  const [aiEndpoint, setAiEndpoint] = useState('http://localhost:20128/v1');
+  const [aiEndpoint, setAiEndpoint] = useState('https://generativelanguage.googleapis.com/v1beta/openai');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('hermes');
+  const [model, setModel] = useState('gemini-2.0-flash');
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [modelsLoading, setModelsLoading] = useState(false);
 
@@ -213,7 +217,7 @@ export default function SettingsView({ onSaved }) {
       <div className="card">
         <div className="card-head">
           <h2 className="card-title">AI naskah</h2>
-          <p className="card-sub">Endpoint kompatibel OpenAI, misal 9Router lokal atau OpenRouter.</p>
+          <p className="card-sub">Ditenagai oleh Google Gemini resmi (gratis via Google AI Studio) atau endpoint kompatibel OpenAI.</p>
         </div>
 
         <form
@@ -241,7 +245,7 @@ export default function SettingsView({ onSaved }) {
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-or-…"
+                placeholder="AIzaSy…"
                 className="input"
               />
             </div>
@@ -250,17 +254,20 @@ export default function SettingsView({ onSaved }) {
           <div className="field">
             <label className="label" htmlFor="ai-model">Model</label>
             <div className="btn-row">
-              <select
+              <input
                 id="ai-model"
+                list="ai-model-list"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="select"
+                placeholder="misal: gemini-2.0-flash"
+                className="input"
                 style={{ flex: '1 1 200px', width: 'auto' }}
-              >
-                {(models.includes(model) ? models : [model, ...models]).map((m) => (
+              />
+              <datalist id="ai-model-list">
+                {models.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
-              </select>
+              </datalist>
               <button
                 type="button"
                 className="btn"
@@ -271,8 +278,8 @@ export default function SettingsView({ onSaved }) {
               </button>
             </div>
             <p className="hint">
-              {isLocalEndpoint ? 'Endpoint lokal, API key tidak diperlukan. ' : ''}
-              Model <code>hermes</code> paling stabil. Model lain otomatis fallback ke hermes kalau gagal.
+              {isLocalEndpoint ? 'Endpoint lokal terdeteksi. ' : 'Google Gemini API resmi. '}
+              Gunakan model <code>gemini-2.0-flash</code> untuk hasil paling cepat, pintar, dan gratis.
             </p>
           </div>
 

@@ -38,6 +38,13 @@ const ALLOWED_ORIGINS = [
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    try {
+      const { hostname } = new URL(origin);
+      // Izinkan akses dari perangkat di jaringan lokal (HP / laptop lain via Wi-Fi/LAN)
+      if (/^192\.168\.\d+\.\d+$|^10\.\d+\.\d+\.\d+$|^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(hostname)) {
+        return callback(null, true);
+      }
+    } catch {}
     callback(new Error('Origin tidak diizinkan oleh CORS'));
   }
 }));
@@ -71,14 +78,14 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Cek cepat apakah endpoint AI (9Router/OpenRouter) sedang terjangkau — dipakai panel
+// Cek cepat apakah endpoint AI (Google Gemini / OpenRouter) sedang terjangkau — dipakai panel
 // "Status Sistem" di Dasbor.
 app.get('/api/ai/ping', async (req, res) => {
   const alive = await aiService.pingEndpoint();
   res.json({ success: true, data: { alive, endpoint: aiService.apiEndpoint } });
 });
 
-// Generate Naskah, Judul, Deskripsi, Tag via AI Hermes
+// Generate Naskah, Judul, Deskripsi, Tag via AI
 app.post('/api/ai/generate', async (req, res) => {
   try {
     const { topic, niche, tone, targetDurationSeconds, continuationContext } = req.body;

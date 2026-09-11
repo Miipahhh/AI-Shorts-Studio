@@ -21,16 +21,7 @@ if not exist "node_modules" (
     echo       Sudah terpasang.
 )
 
-echo [3/6] Memeriksa 9Router - AI penulis naskah, port 20128...
-netstat -ano | findstr ":20128" | findstr "LISTENING" >nul
-if %errorlevel%==0 (
-    echo       Sudah berjalan.
-) else (
-    echo       Belum jalan. Dibuka di jendela baru...
-    start "9Router" cmd /k "%~dp0scripts\start-9router.bat"
-)
-
-echo [4/6] Memeriksa MoneyPrinterTurbo - footage stok asli, port 8080...
+echo [3/5] Memeriksa MoneyPrinterTurbo - footage stok asli, port 8080...
 netstat -ano | findstr ":8080" | findstr "LISTENING" >nul
 if %errorlevel%==0 (
     echo       Sudah berjalan.
@@ -44,21 +35,21 @@ if %errorlevel%==0 (
     )
 )
 
-echo [5/6] Browser dibuka otomatis begitu tampilan siap...
+echo [4/5] Browser dibuka otomatis begitu tampilan siap...
 rem Kesiapan dicek lewat permintaan HTTP, bukan koneksi ke 127.0.0.1: Vite hanya
 rem mendengarkan di alamat IPv6 [::1], jadi tes ke 127.0.0.1 selalu ditolak.
 start "" /min powershell -NoProfile -Command "for ($i=0; $i -lt 90; $i++) { try { Invoke-WebRequest -UseBasicParsing 'http://localhost:5173' -TimeoutSec 3 | Out-Null; Start-Process 'http://localhost:5173'; break } catch { Start-Sleep -Milliseconds 800 } }"
 
-echo [6/6] Menjalankan backend port 3001 dan frontend port 5173...
+echo [5/5] Menjalankan backend port 3001 dan frontend port 5173...
 echo.
 echo -------------------------------------------------------------------------
 echo   Aplikasi        : http://localhost:5173
 echo   Backend         : http://localhost:3001
-echo   9Router         : http://localhost:20128
-echo   MoneyPrinter    : http://127.0.0.1:8080
+echo   AI Naskah       : Google Gemini (Cloud)
+echo   MoneyPrinter    : http://127.0.0.1:8080 (opsional)
 echo.
-echo   Biarkan jendela ini terbuka selama memakai aplikasi.
-echo   Tekan Ctrl+C untuk menghentikan, atau jalankan scripts\restart.bat untuk mulai ulang.
+echo   
+   
 echo -------------------------------------------------------------------------
 echo.
 

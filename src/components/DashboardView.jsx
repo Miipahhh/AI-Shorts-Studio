@@ -25,6 +25,19 @@ const PROVIDER_LABEL = {
   moneyprinter: 'MoneyPrinterTurbo'
 };
 
+function formatEndpointNote(endpoint) {
+  if (!endpoint) return '';
+  if (endpoint.includes('googleapis.com')) return 'Google AI Studio (Gemini)';
+  if (endpoint.includes('openrouter.ai')) return 'OpenRouter Cloud';
+  if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'Lokal';
+  try {
+    const { hostname } = new URL(endpoint);
+    return hostname;
+  } catch {
+    return endpoint;
+  }
+}
+
 /** Titik status hijau/merah/abu-abu untuk panel "Status Sistem". `alive === null` berarti
  * belum selesai dicek (masih loading), bukan mati. */
 function HealthDot({ label, alive, note }) {
@@ -72,7 +85,7 @@ export default function DashboardView({
   }, []);
 
   // Cek ulang berkala (bukan cuma sekali pas dasbor pertama dimuat) — sebelumnya kalau
-  // dasbor dibuka pas 9Router/MoneyPrinterTurbo lagi restart, dot-nya nyangkut merah selamanya
+  // dasbor dibuka pas AI/MoneyPrinterTurbo lagi restart, dot-nya nyangkut merah selamanya
   // walau servisnya sudah nyala lagi, karena tidak pernah dicek ulang tanpa reload halaman.
   useEffect(() => {
     const pingAi = () => {
@@ -118,7 +131,7 @@ export default function DashboardView({
     {
       label: 'Model AI',
       value: systemStatus?.aiConfig?.model || '—',
-      note: systemStatus?.aiConfig?.apiEndpoint
+      note: formatEndpointNote(systemStatus?.aiConfig?.apiEndpoint)
     }
   ];
 
@@ -236,7 +249,7 @@ export default function DashboardView({
             <p className="card-sub">Cek cepat servis yang dipakai buat generate & render.</p>
           </div>
           <div className="list">
-            <HealthDot label="9Router / AI naskah" alive={aiAlive} note={systemStatus?.aiConfig?.apiEndpoint} />
+            <HealthDot label="AI Naskah (Gemini)" alive={aiAlive} note={formatEndpointNote(systemStatus?.aiConfig?.apiEndpoint)} />
             {config?.videoConfig?.provider === 'moneyprinter' && (
               <HealthDot label="MoneyPrinterTurbo" alive={mptAlive} note={config.videoConfig.moneyPrinterEndpoint} />
             )}
