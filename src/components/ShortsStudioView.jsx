@@ -25,6 +25,7 @@ import {
   randomizeTopic,
   trendingTopic,
   clearContinuation,
+  clearResult,
   generateScript,
   renderAndUpload,
   factCheckScript,
@@ -319,13 +320,29 @@ export default function ShortsStudioView({
           <div className="card-head head-row">
             <div>
               <h2 className="card-title">Hasil naskah</h2>
-              <p className="card-sub">{result.generatedBy || "AI"}</p>
+              <p className="card-sub">
+                {(result.generatedBy || "AI")
+                  .replace(/RequirementBusinessAnalysis\s*via\s*9Router/gi, "Google Gemini")
+                  .replace(/via\s*9Router/gi, "via Google Gemini")
+                  .replace(/9Router/gi, "Google Gemini")}
+              </p>
             </div>
-            {result.durationSeconds && (
-              <span className="status">
-                Perkiraan durasi {result.durationSeconds} detik
-              </span>
-            )}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {result.durationSeconds && (
+                <span className="status">
+                  Perkiraan durasi {result.durationSeconds} detik
+                </span>
+              )}
+              <button
+                type="button"
+                className="btn text"
+                onClick={clearResult}
+                style={{ fontSize: 13, padding: "4px 8px" }}
+                title="Hapus naskah ini dari tampilan"
+              >
+                Hapus naskah
+              </button>
+            </div>
           </div>
 
           {usedLocalGenerator && (

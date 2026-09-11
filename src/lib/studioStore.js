@@ -156,7 +156,15 @@ function saveDraft() {
 function loadDraft() {
   try {
     const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.result?.generatedBy && typeof parsed.result.generatedBy === 'string') {
+      parsed.result.generatedBy = parsed.result.generatedBy
+        .replace(/RequirementBusinessAnalysis\s*via\s*9Router/gi, 'Google Gemini')
+        .replace(/via\s*9Router/gi, 'via Google Gemini')
+        .replace(/9Router/gi, 'Google Gemini');
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -375,6 +383,10 @@ export function startContinuation(previousRecord) {
 
 export function clearContinuation() {
   setState({ continuationContext: null });
+}
+
+export function clearResult() {
+  setState({ result: null, videoUrl: null, fallbackReason: null, factCheck: null });
 }
 
 // Hanya menghasilkan naskah & metadata. Render dan upload adalah langkah terpisah,

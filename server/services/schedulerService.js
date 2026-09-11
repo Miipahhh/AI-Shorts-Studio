@@ -125,8 +125,7 @@ class SchedulerService {
   /**
    * Generate naskah lebih awal buat satu topik di antrean (kalender konten) — supaya saat
    * jadwalnya tiba, runNextScheduledJob() tinggal pakai naskah yang sudah siap, bukan generate
-   * dadakan (yang bisa lambat/timeout kalau 9Router lagi sibuk tepat jam eksekusi). Naskah
-   * disimpan di item.aiContent, statusnya berubah PENDING → READY (tetap "belum dieksekusi",
+   * dadakan. Naskah disimpan di item.aiContent, statusnya berubah PENDING → READY (tetap "belum dieksekusi",
    * cuma sekarang sudah ada naskahnya).
    */
   async pregenerateTopic(topicId) {
@@ -160,9 +159,7 @@ class SchedulerService {
 
   /**
    * Pregenerate semua topik PENDING sekaligus (kalender konten) — dijalankan BERURUTAN, bukan
-   * paralel, supaya tidak membanjiri 9Router lokal dengan banyak request generate bersamaan
-   * (yang justru bikin semuanya lebih lambat/gampang timeout, lihat catatan timeout di
-   * aiService.js). Satu topik gagal tidak menghentikan yang lain — dikumpulkan di `failed`.
+   * paralel, supaya request generate stabil dan rapi. Satu topik gagal tidak menghentikan yang lain — dikumpulkan di `failed`.
    */
   async pregenerateAll() {
     this.isPregeneratingAll = true;

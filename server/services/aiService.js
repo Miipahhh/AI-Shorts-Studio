@@ -18,14 +18,14 @@ class AIService {
     const savedConfig = dbService.getAiConfig() || {};
     this.apiEndpoint = savedConfig.aiEndpoint || 'https://generativelanguage.googleapis.com/v1beta/openai';
     this.apiKey = savedConfig.apiKey || '';
-    this.model = savedConfig.model || 'gemini-2.0-flash';
+    this.model = savedConfig.model || 'gemini-3.5-flash';
   }
 
   /**
-   * Parse JSON dari respons model AI dengan toleransi: sebagian model "reasoning" (mis.
-   * deepseek-v4-flash-free lewat combo hermes 9Router) suka membungkus JSON dengan komentar/
-   * catatan berpikir di luar blok JSON-nya. Coba parse langsung dulu, kalau gagal coba ekstrak
-   * substring dari '{' pertama sampai '}' terakhir sebelum menyerah.
+   * Parse JSON dari respons model AI dengan toleransi tinggi:
+   * 1. Coba parse langsung
+   * 2. Ekstrak blok {} atau []
+   * 3. Ekstrak properti topic/niche via regex jika kutip dalam teks merusak JSON
    */
   parseAiJson(rawContent) {
     const cleanJson = (rawContent || '').replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -37,15 +37,26 @@ class AIService {
       if (objStart !== -1 && objEnd > objStart) {
         try {
           return JSON.parse(cleanJson.slice(objStart, objEnd + 1));
-        } catch { /* lanjut coba sebagai array di bawah */ }
+        } catch { /* lanjut ke regex */ }
       }
-      // Sebagian pemanggil (mis. generateVideoSearchTerms) minta output array polos "[...]",
-      // bukan object — kalau ekstraksi object di atas gagal/tidak ada, coba batas array juga.
       const arrStart = cleanJson.indexOf('[');
       const arrEnd = cleanJson.lastIndexOf(']');
       if (arrStart !== -1 && arrEnd > arrStart) {
-        return JSON.parse(cleanJson.slice(arrStart, arrEnd + 1));
+        try {
+          return JSON.parse(cleanJson.slice(arrStart, arrEnd + 1));
+        } catch {}
       }
+
+      // Ekstraksi regex untuk format ide topik
+      const topicMatch = cleanJson.match(/"topic"\s*:\s*"([\s\S]*?)"\s*,\s*"niche"/i);
+      const nicheMatch = cleanJson.match(/"niche"\s*:\s*"([^"]+)"/i);
+      if (topicMatch && nicheMatch) {
+        return {
+          topic: topicMatch[1].trim(),
+          niche: nicheMatch[1].trim()
+        };
+      }
+
       throw new Error('Respons AI bukan JSON valid (kemungkinan model mencampur teks penjelasan dengan JSON).');
     }
   }
@@ -56,7 +67,7 @@ class AIService {
     if (model) this.model = model;
   }
 
-  /** Cek cepat apakah endpoint AI (9Router lokal / OpenRouter) terjangkau — dipakai panel
+  /** Cek cepat apakah endpoint AI (Google Gemini) terjangkau — dipakai panel
    * "Status Sistem" di Dasbor supaya kelihatan sebelum generate gagal karena servicenya mati. */
   async pingEndpoint() {
     try {
@@ -107,8 +118,7 @@ class AIService {
     } else {
       targetDurationLabel = isNarrative ? '180-360 detik (3-6 menit)' : '60-90 detik (minimal 60 detik)';
       // Jumlah scene narrative sengaja dibatasi ke 12-16 (bukan lebih banyak lagi) supaya total
-      // output JSON tidak terlalu besar — versi 15-25 scene sebelumnya bikin generation time
-      // reasoning model di 9Router konsisten kena timeout untuk topik cerita panjang. Durasi
+      // output JSON tidak terlalu besar dan generasi tetap cepat dan stabil. Durasi
       // sampai 6 menit dicapai lewat narasi per scene yang lebih panjang (20-30 detik), bukan
       // menambah jumlah scene lebih banyak lagi.
       targetSceneGuidance = isNarrative
@@ -206,8 +216,7 @@ KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan 
 }
 CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat total ${targetSceneGuidance}, dengan jumlah kata di "narration" (gabungan semua narrationSegment) yang cukup panjang untuk dibacakan selama kurang lebih ${exampleDuration} detik (perkirakan ±2.5 kata Indonesia per detik). Berapa pun jumlah scene-nya, SCENE PALING TERAKHIR wajib berisi ajakan follow seperti dijelaskan di aturan GAYA BAHASA di atas.`;
 
-    // Coba panggil API (9Router lokal atau OpenRouter)
-    // Untuk localhost 9Router, auth opsional — endpoint local bisa tanpa key
+    // Coba panggil API Google Gemini
     const headers = {
       'Content-Type': 'application/json',
       'HTTP-Referer': 'https://ai-shorts-studio.local',
@@ -220,13 +229,6 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
     let lastErrorMessage = 'Alasan tidak diketahui';
 
     // Coba 1: endpoint yang terdaftar + model yang dikonfigurasi.
-    // Timeout dinaikkan ke 340s (dari 240s) — diukur langsung, prompt konten cerita panjang
-    // (3-5 menit, ~10-14 scene) ke combo hermes 9Router bisa konsisten butuh 3+ menit karena
-    // sebagian model underlying di combo ini adalah model "reasoning" yang menghabiskan banyak
-    // token cuma buat proses berpikir sebelum jawaban final.
-    // Dicoba sampai 2x dengan model yang sama: model "combo" (mis. hermes) me-routing acak ke
-    // beberapa provider underlying, jadi satu percobaan gagal (mis. provider tertentu lagi tidak
-    // ada kredensial) bukan berarti modelnya benar-benar tidak bisa dipakai.
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const response = await axios.post(
@@ -262,9 +264,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
         console.warn(`AI API call gagal dengan model ${this.model} (percobaan ${attempt}/2):`, lastErrorMessage);
         if (attempt === 2) {
           // Fallback jika model utama gagal
-          const fallbackCandidates = this.apiEndpoint.includes('googleapis')
-            ? (this.model === 'gemini-2.0-flash' ? ['gemini-1.5-flash', 'gemini-1.5-pro'] : ['gemini-2.0-flash', 'gemini-1.5-flash'])
-            : ['gemini-2.0-flash', 'gemini-1.5-flash'];
+          const fallbackCandidates = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'];
 
           for (const modelCandidate of fallbackCandidates) {
             if (modelCandidate === this.model) continue;
@@ -374,8 +374,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
 
     const attemptModels = [
       this.model,
-      this.model,
-      this.model === 'gemini-2.0-flash' ? 'gemini-1.5-flash' : 'gemini-2.0-flash'
+      this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash'
     ];
 
     let lastError;
@@ -449,7 +448,9 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
           temperature: 0.4,
           max_tokens: 8000,
           stream: false,
-          reasoning: { exclude: true, enabled: false }
+          ...(this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('openrouter')
+            ? { reasoning: { exclude: true, enabled: false } }
+            : {})
         },
         { headers, timeout }
       );
@@ -457,15 +458,14 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
       return this.parseAiJson(rawContent);
     };
 
-    // Pola percobaan-ulang yang sama seperti factCheckNarration — model combo 9Router kadang
-    // menabrak provider yang lagi tidak tersedia di satu percobaan.
+    // Pola percobaan-ulang yang sama seperti factCheckNarration
     try {
       const parsed = await callModel(this.model, 180000);
       return { ...parsed, generatedBy: `${this.model} (direvisi sesuai cek fakta)`, generatedAt: new Date().toISOString() };
     } catch (error) {
       console.warn('Revisi naskah gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
       try {
-        const fallbackModel = this.model === 'gemini-2.0-flash' ? 'gemini-1.5-flash' : 'gemini-2.0-flash';
+        const fallbackModel = this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
         const parsed = await callModel(fallbackModel, 180000);
         return { ...parsed, generatedBy: `${fallbackModel} (direvisi sesuai cek fakta, percobaan ke-2)`, generatedAt: new Date().toISOString() };
       } catch (error2) {
@@ -552,7 +552,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
         checkedAt: new Date().toISOString()
       };
     } catch (error) {
-      // Gagal total (9Router mati, dll) → JANGAN anggap aman diam-diam. Auto-pilot yang
+      // Gagal total (AI tidak terjangkau) → JANGAN anggap aman diam-diam. Auto-pilot yang
       // memanggil ini wajib memperlakukan hasil ini sebagai "butuh review manual", bukan
       // "lolos", supaya kegagalan teknis tidak berubah jadi celah keamanan konten.
       console.warn('[AIService] Cek keamanan konten gagal total:', this.describeAxiosError(error));
@@ -573,7 +573,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
       return await callModel(this.model);
     } catch (error) {
       console.warn('[AIService] Cek keamanan gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
-      const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+      const fallbackModel = this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
       return await callModel(fallbackModel);
     }
   }
@@ -625,7 +625,9 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
           temperature: 0.4,
           max_tokens: 600,
           stream: false,
-          reasoning: { exclude: true, enabled: false }
+          ...(this.apiEndpoint.includes('localhost') || this.apiEndpoint.includes('openrouter')
+            ? { reasoning: { exclude: true, enabled: false } }
+            : {})
         },
         { headers, timeout: 60000 }
       );
@@ -639,17 +641,9 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
       return clean.length ? clean : null;
     };
 
-    // Model "combo" 9Router kadang menabrak provider yang lagi kosong di satu percobaan.
-    // Sebelumnya cuma 1x retry @30s — kalau gagal, MPT diam-diam jatuh ke auto-generate
-    // bawaannya sendiri, yang sering meleset jauh dari topik (footage acak sama sekali tidak
-    // nyambung, mis. topik mitologi malah dapat video gym/hewan). Diperpanjang jadi 4 percobaan
-    // @60s lintas 3 model combo, pola sama seperti factCheckNarration — supaya lebih jarang
-    // "menyerah" ke auto-generate MPT yang kualitasnya jauh lebih rendah dari kata kunci kita.
     const attemptModels = [
       this.model,
-      this.model,
-      this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes',
-      this.model === 'Free' ? 'RequirementBusinessAnalysis' : 'Free'
+      this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash'
     ];
 
     for (let i = 0; i < attemptModels.length; i++) {
@@ -695,36 +689,60 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
     const tones = ['Energik & Viral', 'Misterius & Penasaran', 'Santai & Relatable', 'Dramatis & Menegangkan'];
     const tone = tones[Math.floor(Math.random() * tones.length)];
 
-    const prompt = `Kamu adalah trend-spotter konten Shorts/Reels/TikTok Indonesia yang jago cari ide yang berpotensi viral.
-Berikan SATU ide topik video Shorts baru dalam kategori "${category}" — bisa berupa fakta, cerita fiksi pendek, atau narasi dramatis, TIDAK harus tentang AI/teknologi kecuali kategorinya memang itu.
+    const randomSeed = Math.random().toString(36).substring(2, 8) + Date.now().toString().slice(-4);
+    const angles = [
+      'fakta mencengangkan yang jarang orang tahu',
+      'plot twist cerita mengejutkan di akhir',
+      'fenomena aneh tapi 100% nyata',
+      'pertanyaan provokatif yang bikin penasaran dan overthinking',
+      'sisi gelap atau rahasia yang jarang dibahas publik',
+      'trik atau insight psikologis yang relatable dalam kehidupan sehari-hari'
+    ];
+    const angle = angles[Math.floor(Math.random() * angles.length)];
+
+    const prompt = `Kamu adalah trend-spotter konten Shorts/Reels/TikTok Indonesia kelas dunia.
+Tugasmu: Berikan SATU ide topik video Shorts yang BENAR-BENAR SEGAR, SPESIFIK, UNIK, dan BERPOTENSI VIRAL dalam kategori "${category}".
+Angle konten yang diinginkan: ${angle}.
+Topik harus memiliki hook kuat, tidak klise, bukan topik umum yang membosankan. (Seed acak: ${randomSeed})
 KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
-{"topic": "judul singkat ide topik, maks 80 karakter", "niche": "${category}"}`;
+{"topic": "judul singkat ide topik menarik & catchy, maks 80 karakter", "niche": "${category}"}`;
 
     const headers = { 'Content-Type': 'application/json' };
     if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
 
-    try {
+    const callModel = async (model) => {
       const response = await axios.post(
         `${this.apiEndpoint}/chat/completions`,
         {
-          model: this.model,
+          model,
           messages: [
-            { role: 'system', content: 'You are a viral short-video trend spotter. Always return valid JSON only.' },
+            { role: 'system', content: 'You are a creative viral short-video creator. Always return valid JSON only.' },
             { role: 'user', content: prompt }
           ],
-          temperature: 0.95,
-          max_tokens: 200,
+          temperature: 1.0,
+          max_tokens: 2500,
           stream: false,
-          reasoning: { exclude: true, enabled: false }
+          response_format: { type: 'json_object' }
         },
-        { headers, timeout: 20000 }
+        { headers, timeout: 60000 }
       );
       const rawContent = response.data?.choices?.[0]?.message?.content || '';
-      const parsed = this.parseAiJson(rawContent);
+      return this.parseAiJson(rawContent);
+    };
+
+    try {
+      const parsed = await callModel(this.model);
       return { topic: parsed.topic, niche: parsed.niche || category, tone };
     } catch (error) {
-      console.warn('Gagal minta ide topik acak dari AI, pakai bank topik lokal:', error.message);
-      return this.getRandomFallbackTopic(category, tone);
+      console.warn(`[AIService] Gagal minta ide topik acak dengan model ${this.model}, coba model cadangan:`, this.describeAxiosError(error));
+      try {
+        const fallbackModel = this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
+        const parsed = await callModel(fallbackModel);
+        return { topic: parsed.topic, niche: parsed.niche || category, tone };
+      } catch (err2) {
+        console.warn('[AIService] Kedua model AI gagal, fallback ke bank topik lokal acak:', this.describeAxiosError(err2));
+        return this.getRandomFallbackTopic(category, tone);
+      }
     }
   }
 
@@ -777,36 +795,120 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
             { role: 'user', content: prompt }
           ],
           temperature: 0.8,
-          max_tokens: 250,
+          max_tokens: 2500,
           stream: false,
-          reasoning: { exclude: true, enabled: false }
+          response_format: { type: 'json_object' }
         },
-        { headers, timeout: 30000 }
+        { headers, timeout: 60000 }
       );
       const rawContent = response.data?.choices?.[0]?.message?.content || '';
       const parsed = this.parseAiJson(rawContent);
       const niche = niches.includes(parsed.niche) ? parsed.niche : niches[0];
       return { topic: parsed.topic, niche, tone, sourceTrend: pick.title };
     } catch (error) {
-      console.warn('[AIService] Gagal susun angle dari trending topic, pakai suggestRandomTopic sebagai gantinya:', this.describeAxiosError(error));
-      return this.suggestRandomTopic();
+      console.warn('[AIService] Gagal susun angle dari trending topic, coba model fallback:', this.describeAxiosError(error));
+      try {
+        const fallbackModel = this.model === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
+        const response = await axios.post(
+          `${this.apiEndpoint}/chat/completions`,
+          {
+            model: fallbackModel,
+            messages: [
+              { role: 'system', content: 'You are a viral short-video trend spotter who avoids sensationalizing real tragedies. Always return valid JSON only.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.8,
+            max_tokens: 2500,
+            stream: false,
+            response_format: { type: 'json_object' }
+          },
+          { headers, timeout: 60000 }
+        );
+        const rawContent = response.data?.choices?.[0]?.message?.content || '';
+        const parsed = this.parseAiJson(rawContent);
+        const niche = niches.includes(parsed.niche) ? parsed.niche : niches[0];
+        return { topic: parsed.topic, niche, tone, sourceTrend: pick.title };
+      } catch (err2) {
+        console.warn('[AIService] Fallback trending juga gagal, pakai suggestRandomTopic:', this.describeAxiosError(err2));
+        return this.suggestRandomTopic();
+      }
     }
   }
 
   getRandomFallbackTopic(preferredCategory, tone) {
     const bank = {
-      'Teknologi & AI': ['Fakta AI yang Bakal Ganti Pekerjaan Manusia', 'Gadget Rahasia yang Baru Dirilis Diam-Diam', 'AI vs Manusia: Siapa Menang di 2026'],
-      'Misteri & Horor': ['Misteri Rumah Kosong yang Gak Pernah Terpecahkan', 'Kejadian Aneh yang Direkam CCTV Tengah Malam', 'Legenda Urban yang Ternyata Fakta'],
-      'Cerita Fiksi Pendek': ['Cerita Singkat: Surat dari Masa Depan', 'Fiksi: Robot yang Belajar Merasa Sedih', 'Cerita Horor Singkat: Suara di Lorong Apartemen'],
-      'Psikologi & Fakta Sosial': ['Kenapa Orang Susah Mengaku Salah', 'Trik Psikologi Biar Disukai Orang Baru Kenal', 'Fakta Aneh Soal Cara Otak Membuat Keputusan'],
-      'Sejarah Tersembunyi': ['Fakta Sejarah yang Sengaja Ditutupi', 'Kejadian Bersejarah yang Nyaris Mengubah Dunia', 'Rahasia di Balik Bangunan Kuno Terkenal'],
-      'Keuangan & Investasi': ['Kesalahan Keuangan yang Bikin Orang Tetap Miskin', 'Cara Kerja Uang yang Gak Diajarin di Sekolah', 'Investasi Kecil yang Berubah Jadi Kekayaan Besar'],
-      'Kesehatan & Sains': ['Fakta Tubuh Manusia yang Bikin Kaget', 'Kebiasaan Kecil yang Diam-Diam Merusak Kesehatan', 'Eksperimen Sains yang Hasilnya Gak Terduga'],
-      'Hewan & Alam Liar': ['Hewan dengan Kemampuan Bertahan Hidup Paling Gila', 'Fenomena Alam yang Sulit Dijelaskan Sains', 'Hewan Purba yang Ternyata Masih Ada'],
-      'Konspirasi & Urban Legend': ['Teori Konspirasi yang Ternyata Ada Benarnya', 'Urban Legend Populer & Fakta di Baliknya', 'Rahasia yang Katanya Disembunyikan Pemerintah'],
-      'Hubungan & Percintaan': ['Tanda Hubungan Sehat yang Sering Diabaikan', 'Kesalahan Umum di Awal Hubungan', 'Cara Mengenali Red Flag Sebelum Terlambat'],
-      'Motivasi & Karir': ['Kebiasaan Orang Sukses Sebelum Jam 8 Pagi', 'Alasan Kerja Keras Aja Gak Cukup', 'Skill yang Wajib Dikuasai Sebelum 2030'],
-      'Game & Pop Culture': ['Easter Egg Tersembunyi di Game Populer', 'Fakta di Balik Layar Film yang Jarang Diketahui', 'Tren Budaya Pop yang Lagi Viral Sekarang']
+      'Teknologi & AI': [
+        'Fakta AI yang Bakal Ganti Pekerjaan Manusia', 'Gadget Rahasia yang Baru Dirilis Diam-Diam',
+        'AI vs Manusia: Siapa Menang di 2026', 'Fitur Tersembunyi Smartphone yang 90% Orang Gak Tahu',
+        'Apa yang Terjadi Jika Internet Dunia Mati 24 Jam?', 'Komputer Kuantum: Ancaman Nyata Sandi Perbankan',
+        'Bahaya Digital Footprint yang Gak Bisa Dihapus', 'Teknologi Militer Canggih yang Akhirnya Dibocorkan'
+      ],
+      'Misteri & Horor': [
+        'Misteri Rumah Kosong yang Gak Pernah Terpecahkan', 'Kejadian Aneh yang Direkam CCTV Tengah Malam',
+        'Legenda Urban yang Ternyata Fakta', 'Sinyal Radio Aneh dari Luar Angkasa yang Terus Berulang',
+        'Kapal Hantu Mary Celeste: Ke Mana Semua Awak Pergi?', 'Hutan Paling Terkutuk di Dunia yang Menolak Pengunjung',
+        'Suara Bawah Laut The Bloop yang Bikin Peneliti Bingung', 'Misteri Pendaki Gunung Dyatlov Pass yang Mencekam'
+      ],
+      'Cerita Fiksi Pendek': [
+        'Fiksi: Pesan Singkat dari Nomor Sendiri di Masa Depan', 'Fiksi: Robot yang Belajar Merasa Sedih',
+        'Cerita Horor Singkat: Suara Ketukan di Cermin Kamar Mandi', 'Fiksi: Toko yang Menjual Waktu Tambahan Hidup',
+        'Cerita Singkat: Pria Terakhir di Bumi Mendengar Pintu Diketuk', 'Fiksi: Aplikasi yang Bisa Memprediksi Kematian',
+        'Cerita: Penumpang Misterius di Kereta Terakhir Tengah Malam', 'Fiksi: Ketika Bayanganmu Memutuskan Berhenti Mengikutimu'
+      ],
+      'Psikologi & Fakta Sosial': [
+        'Kenapa Orang Susah Mengaku Salah', 'Trik Psikologi Biar Disukai Orang Baru Kenal',
+        'Fakta Aneh Soal Cara Otak Membuat Keputusan', 'Bahaya Gaslighting Halus yang Sering Dikira Perhatian',
+        'Efek Dunning-Kruger: Kenapa Orang Kurang Paham Lebih Pede?', 'Kenapa Kamu Sering Lupa Mau Ngapain Pas Masuk Ruangan?',
+        'Tanda Teman Toxic yang Diam-Diam Menjatuhkanmu', 'Cara Membaca Bahasa Tubuh Orang yang Sedang Berbohong'
+      ],
+      'Sejarah Tersembunyi': [
+        'Fakta Sejarah yang Sengaja Ditutupi', 'Kejadian Bersejarah yang Nyaris Mengubah Dunia',
+        'Rahasia di Balik Bangunan Kuno Terkenal', 'Perang Tersingkat di Dunia yang Cuma Berlangsung 38 Menit',
+        'Harta Karun Terbesar yang Belum Pernah Ditemukan', 'Kebiasaan Aneh Para Tokoh Besar Dunia Zaman Dulu',
+        'Kota Kuno yang Lenyap Misterius Tanpa Bekas', 'Ilmuwan Jenius yang Karyanya Dicuri Sejarah'
+      ],
+      'Keuangan & Investasi': [
+        'Kesalahan Keuangan yang Bikin Orang Tetap Miskin', 'Cara Kerja Uang yang Gak Diajarin di Sekolah',
+        'Investasi Kecil yang Berubah Jadi Kekayaan Besar', 'Trik Psikologi Toko Bikin Kamu Boros Belanja',
+        'Perbedaan Pola Pikir Orang Kaya vs Menengah', 'Kebiasaan Finansial yang Diam-Diam Menguras Tabungan',
+        'Pelajaran dari Bangkrutnya Miliarder Dunia', 'Kenapa Inflasi Diam-Diam Merampok Gajimu'
+      ],
+      'Kesehatan & Sains': [
+        'Fakta Tubuh Manusia yang Bikin Kaget', 'Kebiasaan Kecil yang Diam-Diam Merusak Kesehatan',
+        'Eksperimen Sains yang Hasilnya Gak Terduga', 'Apa yang Terjadi pada Tubuh Kalau Gak Tidur 3 Hari?',
+        'Organ Tubuh yang Sebenarnya Gak Kita Butuhkan', 'Kenapa Gula Lebih Bikin Kecanduan daripada yang Kita Duga?',
+        'Fakta Menakjubkan Tentang Sistem Imun Manusia', 'Bahaya Duduk Terlalu Lama yang Setara Merokok'
+      ],
+      'Hewan & Alam Liar': [
+        'Hewan dengan Kemampuan Bertahan Hidup Paling Gila', 'Fenomena Alam yang Sulit Dijelaskan Sains',
+        'Hewan Purba yang Ternyata Masih Ada', 'Tardigrade: Makhluk Mikroskopis yang Bisa Hidup di Luar Angkasa',
+        'Hewan Paling Berbisa di Dunia yang Terlihat Lucu', 'Pohon Tertua di Bumi yang Sudah Hidup Sejak Zaman Es',
+        'Komunikasi Rahasia Hewan yang Baru Terungkap', 'Predator Laut Paling Mematikan Selain Hiu'
+      ],
+      'Konspirasi & Urban Legend': [
+        'Teori Konspirasi yang Ternyata Ada Benarnya', 'Urban Legend Populer & Fakta di Baliknya',
+        'Rahasia yang Katanya Disembunyikan Pemerintah', 'Area 51: Fakta vs Fiksi yang Beredar',
+        'Proyek Rahasia MK-Ultra yang Benar-Benar Terjadi', 'Misteri Segitiga Bermuda: Mitos atau Fakta Ilmiah?',
+        'Bungker Mewah Kaum Elit Dunia di Bawah Tanah', 'Satelit Misterius Black Knight: Sampah Antariksa atau UFO?'
+      ],
+      'Hubungan & Percintaan': [
+        'Tanda Hubungan Sehat yang Sering Diabaikan', 'Kesalahan Umum di Awal Hubungan',
+        'Cara Mengenali Red Flag Sebelum Terlambat', 'Love Bombing: Trik Manipulatif Berkedok Romantis',
+        'Kenapa Orang Bisa Bosan Padahal Masih Sayang?', 'Perbedaan Cowok Cuek vs Cowok yang Gak Peduli',
+        'Silent Treatment: Bentuk Hukuman Emosional Paling Dingin', 'Kunci Hubungan Langgeng Menurut Riset 40 Tahun'
+      ],
+      'Motivasi & Karir': [
+        'Kebiasaan Orang Sukses Sebelum Jam 8 Pagi', 'Alasan Kerja Keras Aja Gak Cukup',
+        'Skill yang Wajib Dikuasai Sebelum 2030', 'Kenapa Kamu Suka Menunda-Nunda (Bukan Karena Malas)',
+        'Cara Negosiasi Gaji Biar Gak Dipandang Rendah', 'Aturan 5 Detik untuk Mengalahkan Rasa Malas',
+        'Mindset yang Membedakan Pekerja Keras vs Pekerja Cerdas', 'Pelajaran Pahit Dunia Kerja yang Baru Sadar Pas Dewasa'
+      ],
+      'Game & Pop Culture': [
+        'Easter Egg Tersembunyi di Game Populer', 'Fakta di Balik Layar Film yang Jarang Diketahui',
+        'Tren Budaya Pop yang Lagi Viral Sekarang', 'Game Jadul yang Ternyata Mengubah Industri Hiburan',
+        'Plot Hole Film Terkenal yang Baru Disadari Penonton', 'Karakter Anime yang Lebih Populer dari Karakter Utamanya',
+        'Soundtrack Film yang Dibuat Tanpa Sengaja Jadi Legendaris', 'Misteri Pesan Rahasia di Video Game Terkenal'
+      ]
     };
     const list = bank[preferredCategory] || bank['Teknologi & AI'];
     const topic = list[Math.floor(Math.random() * list.length)];
@@ -830,8 +932,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
   pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
   /**
-   * Generator naskah lokal (dipakai HANYA kalau AI utama & semua fallback API gagal dihubungi,
-   * misalnya 9Router lokal belum jalan). Beda dari versi lama, ini menyusun narasi & caption yang
+   * Generator naskah lokal (dipakai HANYA kalau AI utama & semua fallback API gagal dihubungi).
+   * Beda dari versi lama, ini menyusun narasi & caption yang
    * benar-benar bercerita tentang topiknya sendiri (bukan iklan generik soal "AI Shorts Studio"),
    * dengan struktur & gaya bahasa yang berubah-ubah sesuai niche, dan sedikit variasi acak supaya
    * tidak selalu terasa sama persis di tiap generate.

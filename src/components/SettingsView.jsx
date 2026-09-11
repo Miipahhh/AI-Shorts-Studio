@@ -5,9 +5,10 @@ import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
 
 const FALLBACK_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro'
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.8-flash'
 ];
 
 const VIDEO_PROVIDERS = [
@@ -22,7 +23,7 @@ export default function SettingsView({ onSaved }) {
   // AI
   const [aiEndpoint, setAiEndpoint] = useState('https://generativelanguage.googleapis.com/v1beta/openai');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gemini-2.0-flash');
+  const [model, setModel] = useState('gemini-3.5-flash');
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [modelsLoading, setModelsLoading] = useState(false);
 
@@ -279,7 +280,7 @@ export default function SettingsView({ onSaved }) {
             </div>
             <p className="hint">
               {isLocalEndpoint ? 'Endpoint lokal terdeteksi. ' : 'Google Gemini API resmi. '}
-              Gunakan model <code>gemini-2.0-flash</code> untuk hasil paling cepat, pintar, dan gratis.
+              Gunakan model <code>gemini-3.5-flash</code> atau <code>gemini-3.5-flash-lite</code> untuk hasil paling cepat, pintar, dan gratis.
             </p>
           </div>
 
