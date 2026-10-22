@@ -180,10 +180,29 @@ app.get('/api/shorts', (req, res) => {
   res.json({ success: true, data });
 });
 
+// Status render Studio yang sedang berlangsung di background server — dipakai agar
+// saat HP mati/terkunci/browser refresh, klien bisa cek apakah render masih jalan atau sudah selesai.
+let activeStudioRender = null;
+
+app.get('/api/shorts/active-render', (req, res) => {
+  res.json({
+    success: true,
+    isRendering: Boolean(activeStudioRender),
+    activeJob: activeStudioRender,
+    latestShort: shortsHistory[0] || null
+  });
+});
+
 // Buat Baru dari Awal hingga Upload Lengkap (One-Click Generate & Upload)
 app.post('/api/shorts/create-and-upload', async (req, res) => {
   try {
     const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds, localFootage, seriesPartNumber, seriesRootId } = req.body;
+
+    activeStudioRender = {
+      id: 'render_' + Date.now(),
+      title: title || topic || 'Video Short',
+      startedAt: Date.now()
+    };
 
     // Jika title sudah tersedia (dari frontend), gunakan langsung; jika tidak, generate.
     // durationSeconds harus ikut disertakan di sini — sebelumnya field ini tidak dibawa,
@@ -256,6 +275,8 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
     res.json({ success: true, data: newRecord });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    activeStudioRender = null;
   }
 });
 

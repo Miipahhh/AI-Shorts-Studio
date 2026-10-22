@@ -205,6 +205,60 @@ export async function initStudio() {
       if (provider) setState({ videoProvider: provider });
     })
     .catch(() => {});
+
+  // Sinkronisasi status render: saat HP mati/terkunci lalu dibuka lagi, cek apakah
+  // render masih berjalan di server atau sudah selesai saat klien terputus.
+  try {
+    const statusRes = await axios.get('/api/shorts/active-render');
+    if (statusRes.data?.success) {
+      const { isRendering, activeJob, latestShort } = statusRes.data;
+      if (isRendering && activeJob) {
+        setState({ isRendering: true });
+        pollActiveRender();
+      } else if (latestShort && draft?.result?.title && latestShort.title === draft.result.title && !state.videoUrl) {
+        const url = latestShort.renderedVideo?.videoUrl || latestShort.uploadResult?.localVideoUrl || null;
+        if (url) {
+          setState({
+            videoUrl: url,
+            fallbackReason: latestShort.renderedVideo?.aiVideoFallbackReason || null,
+            isRendering: false
+          });
+        }
+      }
+    }
+  } catch {}
+}
+
+let activePollTimer = null;
+function pollActiveRender() {
+  if (activePollTimer) clearInterval(activePollTimer);
+  activePollTimer = setInterval(async () => {
+    try {
+      const res = await axios.get('/api/shorts/active-render');
+      if (res.data?.success) {
+        if (!res.data.isRendering) {
+          clearInterval(activePollTimer);
+          activePollTimer = null;
+          setState({ isRendering: false });
+          const latest = res.data.latestShort;
+          if (latest) {
+            const url = latest.renderedVideo?.videoUrl || latest.uploadResult?.localVideoUrl || null;
+            if (url) {
+              setState({
+                videoUrl: url,
+                fallbackReason: latest.renderedVideo?.aiVideoFallbackReason || null
+              });
+              toast.success(`Video "${latest.title}" selesai dirender!`, { duration: 5000 });
+            }
+          }
+        }
+      }
+    } catch {
+      clearInterval(activePollTimer);
+      activePollTimer = null;
+      setState({ isRendering: false });
+    }
+  }, 2500);
 }
 
 export const setTopic = (topic) => setState({ topic });

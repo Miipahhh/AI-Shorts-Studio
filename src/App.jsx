@@ -22,8 +22,20 @@ const NAV = [
   { id: 'settings', label: 'Pengaturan' }
 ];
 
+const VALID_TABS = NAV.map((n) => n.id);
+
+function getInitialTab() {
+  try {
+    const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+    if (VALID_TABS.includes(hash)) return hash;
+    const saved = localStorage.getItem('activeTab');
+    if (VALID_TABS.includes(saved)) return saved;
+  } catch {}
+  return 'dashboard';
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [systemStatus, setSystemStatus] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute('data-theme') || 'light');
@@ -130,9 +142,25 @@ export default function App() {
     fetchStatus();
   };
 
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      if (VALID_TABS.includes(hash)) {
+        setActiveTab(hash);
+        try { localStorage.setItem('activeTab', hash); } catch (e) {}
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
   const goTo = (id) => {
     setActiveTab(id);
     setMenuOpen(false);
+    try {
+      localStorage.setItem('activeTab', id);
+      window.location.hash = id;
+    } catch (e) {}
   };
 
   return (
@@ -220,7 +248,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardView
             systemStatus={systemStatus}
-            onNavigate={setActiveTab}
+            onNavigate={goTo}
             isGenerating={studio.isGenerating}
             isRendering={studio.isRendering}
             isFactChecking={studio.isFactChecking}
@@ -242,7 +270,7 @@ export default function App() {
           />
         )}
         {activeTab === 'scheduler' && <SchedulerView />}
-        {activeTab === 'history' && <HistoryView onNavigate={setActiveTab} />}
+        {activeTab === 'history' && <HistoryView onNavigate={goTo} />}
         {activeTab === 'settings' && <SettingsView onSaved={fetchStatus} />}
       </main>
     </div>
