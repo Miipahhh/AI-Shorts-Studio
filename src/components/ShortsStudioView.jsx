@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Copy,
   Dices,
@@ -36,6 +36,63 @@ import ProgressBar from "./ui/ProgressBar.jsx";
 import FootagePicker from "./ui/FootagePicker.jsx";
 import TypewriterText from "./ui/TypewriterText.jsx";
 import GeneratingPlaceholder from "./ui/GeneratingPlaceholder.jsx";
+
+function VideoThumbnail({ src }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const [imgSrc, setImgSrc] = useState(null);
+
+  useEffect(() => {
+    if (!src) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    setImgSrc(null);
+    video.src = src;
+    video.currentTime = 0.5;
+
+    const onSeeked = () => {
+      canvas.width = 720;
+      canvas.height = 1280;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, 720, 1280);
+      setImgSrc(canvas.toDataURL("image/jpeg"));
+    };
+
+    video.addEventListener("seeked", onSeeked, { once: true });
+    return () => video.removeEventListener("seeked", onSeeked);
+  }, [src]);
+
+  const thumbStyle = {
+    width: 120,
+    borderRadius: 8,
+    aspectRatio: "9/16",
+    objectFit: "cover",
+  };
+
+  return (
+    <>
+      <video ref={videoRef} style={{ display: "none" }} />
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+      {imgSrc ? (
+        <img src={imgSrc} style={thumbStyle} alt="thumbnail" />
+      ) : (
+        <div
+          style={{
+            ...thumbStyle,
+            background: "#111",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <span style={{ color: "#666", fontSize: 12 }}>...</span>
+        </div>
+      )}
+    </>
+  );
+}
 
 const VERDICT_LABEL = {
   akurat: "Akurat",
@@ -444,7 +501,19 @@ export default function ShortsStudioView({
                   <div key={idx} className="scene">
                     <span className="scene-num">{idx + 1}</span>
                     <div>
-                      <div className="scene-caption">{scene.captionText}</div>
+                      <input
+                        type="text"
+                        value={scene.captionText || ''}
+                        onChange={(e) => {
+                          const newScenes = result.scenes.map((s, i) =>
+                            i === idx ? { ...s, captionText: e.target.value } : s
+                          );
+                          patchResult({ scenes: newScenes });
+                        }}
+                        className="input"
+                        style={{ fontSize: 13, padding: '4px 8px', marginBottom: 2 }}
+                        placeholder="Caption scene..."
+                      />
                       {scene.narrationSegment && (
                         <TypewriterText
                           text={scene.narrationSegment}
@@ -672,7 +741,10 @@ export default function ShortsStudioView({
           )}
 
           <div className="video-row">
-            <video src={videoUrl} controls className="video-9-16" />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <VideoThumbnail src={videoUrl} />
+              <video src={videoUrl} controls className="video-9-16" />
+            </div>
             <div>
               <a href={videoUrl} download className="btn">
                 <Download size={15} /> Download MP4

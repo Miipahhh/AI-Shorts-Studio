@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Volume2 } from 'lucide-react';
+import { RefreshCw, Volume2, Trash2, Check, ExternalLink, Zap } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
@@ -33,6 +33,11 @@ export default function SettingsView({ onSaved }) {
   const [pageAccessToken, setPageAccessToken] = useState('');
   const [facebookStatus, setFacebookStatus] = useState(null);
   const [fbCheckStatus, setFbCheckStatus] = useState(null); // null | 'checking' | 'alive' | 'down'
+  const [connectMode, setConnectMode] = useState('auto'); // 'auto' | 'manual'
+  const [userToken, setUserToken] = useState('');
+  const [fetchingPages, setFetchingPages] = useState(false);
+  const [fetchedPages, setFetchedPages] = useState([]);
+  const [switchingPage, setSwitchingPage] = useState(false);
 
   // Video
   const [videoProvider, setVideoProvider] = useState('template');
@@ -156,6 +161,101 @@ export default function SettingsView({ onSaved }) {
       if (res.data?.data?.pageName) setPageName(res.data.data.pageName);
     } catch (error) {
       setFbCheckStatus('down');
+    }
+  };
+
+  const handleFetchPages = async (e) => {
+    if (e) e.preventDefault();
+    if (!userToken.trim()) {
+      toast.error('Masukkan User Access Token terlebih dahulu.');
+      return;
+    }
+    setFetchingPages(true);
+    try {
+      const res = await axios.post('/api/facebook/fetch-pages', { userAccessToken: userToken.trim() });
+      if (res.data?.success) {
+        const pages = res.data.data || [];
+        setFetchedPages(pages);
+        if (pages.length === 0) {
+          toast.warn('Tidak ada Halaman yang ditemukan dari token ini. Pastikan akun ini adalah Admin Halaman.');
+        } else {
+          toast.success(`${pages.length} Halaman Facebook ditemukan! Pilih halaman di bawah.`);
+        }
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal mengambil daftar halaman Facebook.');
+    } finally {
+      setFetchingPages(false);
+    }
+  };
+
+  const handleSelectFetchedPage = async (page) => {
+    try {
+      const res = await axios.post('/api/facebook/select-page', {
+        pageId: page.id,
+        pageName: page.name,
+        pageAccessToken: page.accessToken,
+        category: page.category
+      });
+      if (res.data?.success) {
+        setFacebookStatus(res.data.facebookStatus);
+        setPageName(page.name);
+        setPageId(page.id);
+        setPageAccessToken(page.accessToken);
+        setFetchedPages([]);
+        setUserToken('');
+        toast.success(`Halaman "${page.name}" berhasil dihubungkan!`);
+        if (onSaved) onSaved();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal menghubungkan halaman.');
+    }
+  };
+
+  const handleSwitchPage = async (targetId) => {
+    setSwitchingPage(true);
+    try {
+      const res = await axios.post('/api/facebook/switch-page', { pageId: targetId });
+      if (res.data?.success) {
+        setFacebookStatus(res.data.facebookStatus);
+        const active = res.data.facebookStatus?.savedPages?.find((p) => p.isActive);
+        if (active) {
+          setPageName(active.name);
+          setPageId(active.id);
+        }
+        toast.success(`Beralih ke halaman "${res.data.data.pageName}".`);
+        if (onSaved) onSaved();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal beralih halaman.');
+    } finally {
+      setSwitchingPage(false);
+    }
+  };
+
+  const handleDeleteSavedPage = async (targetId, targetName) => {
+    const ok = await confirmAction(`Hapus halaman "${targetName}" dari daftar tersimpan?`, {
+      title: 'Hapus Halaman'
+    });
+    if (!ok) return;
+    try {
+      const res = await axios.delete(`/api/facebook/saved-pages/${targetId}`);
+      if (res.data?.success) {
+        setFacebookStatus(res.data.facebookStatus);
+        const active = res.data.facebookStatus?.savedPages?.find((p) => p.isActive);
+        if (active) {
+          setPageName(active.name);
+          setPageId(active.id);
+        } else {
+          setPageName('');
+          setPageId('');
+          setPageAccessToken('');
+        }
+        toast.success(`Halaman "${targetName}" dihapus.`);
+        if (onSaved) onSaved();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal menghapus halaman.');
     }
   };
 
@@ -353,7 +453,7 @@ export default function SettingsView({ onSaved }) {
         <div className="card-head head-row">
           <div>
             <h2 className="card-title">Facebook Page</h2>
-            <p className="card-sub">Page Access Token untuk upload otomatis ke Facebook.</p>
+            <p className="card-sub">Hubungkan Fanpage untuk upload otomatis & Facebook Reels.</p>
           </div>
           <span className="status">
             <span className={`dot ${facebookStatus?.isConnected ? 'on' : 'off'}`} />
@@ -361,69 +461,190 @@ export default function SettingsView({ onSaved }) {
           </span>
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            save('facebook', '/api/settings/facebook', { pageName, pageId, pageAccessToken }, 'Kredensial Facebook');
-          }}
-        >
-          <div className="field">
-            <label className="label" htmlFor="fb-name">Nama Page</label>
-            <input
-              id="fb-name"
-              type="text"
-              value={pageName}
-              onChange={(e) => setPageName(e.target.value)}
-              className="input"
-            />
-          </div>
-
-          <div className="grid-2 field">
-            <div>
-              <label className="label" htmlFor="fb-id">Page ID</label>
-              <input
-                id="fb-id"
-                type="text"
-                value={pageId}
-                onChange={(e) => setPageId(e.target.value)}
-                placeholder="1234567890"
-                className="input"
-              />
+        {/* Multi-Page Switcher (jika ada halaman tersimpan) */}
+        {facebookStatus?.savedPages?.length > 0 && (
+          <div className="field" style={{ background: 'var(--surface-hover, rgba(255,255,255,0.03))', padding: '12px', borderRadius: '8px', marginBottom: 16 }}>
+            <div className="label-row" style={{ marginBottom: 6 }}>
+              <label className="label" style={{ marginBottom: 0 }}>
+                Halaman Aktif ({facebookStatus.savedPages.length} tersimpan)
+              </label>
+              <span className="hint" style={{ fontSize: 12 }}>Bisa ganti kapan saja</span>
             </div>
-            <div>
-              <label className="label" htmlFor="fb-token">Page Access Token</label>
-              <input
-                id="fb-token"
-                type="password"
-                value={pageAccessToken}
-                onChange={(e) => setPageAccessToken(e.target.value)}
-                placeholder="EAAG…"
-                className="input"
-              />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select
+                value={facebookStatus.savedPages.find((p) => p.isActive)?.id || ''}
+                onChange={(e) => handleSwitchPage(e.target.value)}
+                disabled={switchingPage}
+                className="select"
+                style={{ flex: 1 }}
+              >
+                {facebookStatus.savedPages.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.isActive ? '✓ ' : ''}{p.name} {p.category ? `(${p.category})` : ''} — ID: {p.id}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn"
+                onClick={checkFacebookConnection}
+                disabled={fbCheckStatus === 'checking' || !pageId}
+                title="Cek apakah token halaman aktif masih valid"
+              >
+                {fbCheckStatus === 'checking' ? <span className="spinner" /> : 'Cek koneksi'}
+              </button>
+              {facebookStatus.savedPages.find((p) => p.isActive) && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Hapus halaman aktif ini dari daftar tersimpan"
+                  onClick={() => handleDeleteSavedPage(facebookStatus.savedPages.find((p) => p.isActive)?.id, facebookStatus.pageName)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
+            {fbCheckStatus === 'alive' && <p className="hint" style={{ marginTop: 6 }}><span className="dot on" /> Halaman aktif terjangkau & token valid.</p>}
+            {fbCheckStatus === 'down' && <p className="hint" style={{ marginTop: 6 }}><span className="dot off" /> Token halaman aktif kedaluwarsa atau tidak valid. Silakan hubungkan ulang di bawah.</p>}
           </div>
+        )}
 
-          <div className="btn-row">
-            <button type="submit" className="btn primary" disabled={saving === 'facebook'}>
-              {saving === 'facebook' ? 'Menyimpan…' : 'Simpan'}
+        {/* Tab Pilihan Mode Tambah Halaman */}
+        <div style={{ marginBottom: 14 }}>
+          <div className="btn-row" style={{ gap: 6 }}>
+            <button
+              type="button"
+              className={`btn sm ${connectMode === 'auto' ? 'primary' : ''}`}
+              onClick={() => setConnectMode('auto')}
+            >
+              <Zap size={13} style={{ verticalAlign: -1, marginRight: 4 }} />
+              Tarik Otomatis via User Token
             </button>
-            <button type="button" className="btn" onClick={checkFacebookConnection} disabled={fbCheckStatus === 'checking' || !pageId || !pageAccessToken}>
-              {fbCheckStatus === 'checking' ? <span className="spinner" /> : 'Cek koneksi'}
+            <button
+              type="button"
+              className={`btn sm ${connectMode === 'manual' ? 'primary' : ''}`}
+              onClick={() => setConnectMode('manual')}
+            >
+              Input Manual (ID & Token)
             </button>
-            {facebookStatus?.isConnected && (
-              <button type="button" className="btn" onClick={handleDisconnect}>Putuskan koneksi</button>
+          </div>
+        </div>
+
+        {connectMode === 'auto' ? (
+          <div>
+            <form onSubmit={handleFetchPages}>
+              <div className="field">
+                <label className="label" htmlFor="fb-user-token">
+                  User Access Token Facebook
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    id="fb-user-token"
+                    type="password"
+                    value={userToken}
+                    onChange={(e) => setUserToken(e.target.value)}
+                    placeholder="Tempel User Access Token (EAA...) dari akun FB kamu"
+                    className="input"
+                    style={{ flex: 1 }}
+                  />
+                  <button type="submit" className="btn primary" disabled={fetchingPages || !userToken.trim()}>
+                    {fetchingPages ? <><span className="spinner" /> Mengambil…</> : 'Tarik Daftar Halaman'}
+                  </button>
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>
+                  Buka <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Graph API Explorer <ExternalLink size={11} style={{ verticalAlign: -1 }} /></a> ➔ pilih User Token dengan izin <code>pages_show_list</code>, <code>pages_read_engagement</code>, dan <code>pages_manage_posts</code> ➔ Salin token lalu tempel di sini.
+                </p>
+              </div>
+            </form>
+
+            {fetchedPages.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div className="label" style={{ marginBottom: 8 }}>
+                  Pilih Halaman yang Ingin Dihubungkan ({fetchedPages.length} ditemukan):
+                </div>
+                <div className="list">
+                  {fetchedPages.map((page) => (
+                    <div key={page.id} className="list-item" style={{ alignItems: 'center' }}>
+                      <div className="list-item-main" style={{ flex: 1 }}>
+                        <div className="list-item-title" style={{ fontWeight: 600 }}>{page.name}</div>
+                        <div className="list-item-meta">
+                          {page.category && <span>{page.category} • </span>}
+                          ID: {page.id}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn sm primary"
+                        onClick={() => handleSelectFetchedPage(page)}
+                      >
+                        <Check size={13} style={{ verticalAlign: -1, marginRight: 4 }} />
+                        Hubungkan Halaman Ini
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-          {fbCheckStatus === 'alive' && <p className="hint"><span className="dot on" /> Page terjangkau & token valid.</p>}
-          {fbCheckStatus === 'down' && <p className="hint"><span className="dot off" /> Page ID/token tidak valid, atau tidak terjangkau. Cek ulang di Meta for Developers.</p>}
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              save('facebook', '/api/settings/facebook', { pageName, pageId, pageAccessToken }, 'Kredensial Facebook');
+            }}
+          >
+            <div className="field">
+              <label className="label" htmlFor="fb-name">Nama Page</label>
+              <input
+                id="fb-name"
+                type="text"
+                value={pageName}
+                onChange={(e) => setPageName(e.target.value)}
+                placeholder="Contoh: Fashion Daily"
+                className="input"
+              />
+            </div>
 
-          <p className="hint">
-            Page ID & Page Access Token didapat sendiri dari{' '}
-            <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">Meta for Developers</a>{' '}
-            (App milik Anda sendiri, admin Page yang sama) — bukan lewat redirect aplikasi ini. Izin yang dibutuhkan:{' '}
-            <code>pages_manage_posts</code> dan <code>pages_read_engagement</code>. Detail langkah-langkah ada di README.
-          </p>
-        </form>
+            <div className="grid-2 field">
+              <div>
+                <label className="label" htmlFor="fb-id">Page ID</label>
+                <input
+                  id="fb-id"
+                  type="text"
+                  value={pageId}
+                  onChange={(e) => setPageId(e.target.value)}
+                  placeholder="1234567890"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="fb-token">Page Access Token</label>
+                <input
+                  id="fb-token"
+                  type="password"
+                  value={pageAccessToken}
+                  onChange={(e) => setPageAccessToken(e.target.value)}
+                  placeholder="EAAG…"
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="btn-row">
+              <button type="submit" className="btn primary" disabled={saving === 'facebook'}>
+                {saving === 'facebook' ? 'Menyimpan…' : 'Simpan Halaman'}
+              </button>
+              <button type="button" className="btn" onClick={checkFacebookConnection} disabled={fbCheckStatus === 'checking' || !pageId || !pageAccessToken}>
+                {fbCheckStatus === 'checking' ? <span className="spinner" /> : 'Cek koneksi'}
+              </button>
+              {facebookStatus?.isConnected && (
+                <button type="button" className="btn" onClick={handleDisconnect}>Putuskan koneksi</button>
+              )}
+            </div>
+            {fbCheckStatus === 'alive' && <p className="hint"><span className="dot on" /> Page terjangkau & token valid.</p>}
+            {fbCheckStatus === 'down' && <p className="hint"><span className="dot off" /> Page ID/token tidak valid. Cek ulang di Meta for Developers.</p>}
+          </form>
+        )}
       </div>
 
       {/* ---------------- VIDEO ---------------- */}

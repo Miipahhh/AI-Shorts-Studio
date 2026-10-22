@@ -30,14 +30,103 @@ class FacebookService {
     this.pageAccessToken = saved.pageAccessToken || '';
     this.pageName = saved.pageName || 'AI Shorts Studio Page';
     this.mode = saved.mode || 'SANDBOX';
+    this.savedPages = Array.isArray(saved.savedPages) ? saved.savedPages : [];
+
+    // Jika sudah ada halaman aktif tapi belum masuk daftar tersimpan, tambahkan otomatis
+    if (this.pageId && this.pageAccessToken && !this.savedPages.some((p) => p.id === this.pageId)) {
+      this.savedPages.push({
+        id: this.pageId,
+        name: this.pageName,
+        accessToken: this.pageAccessToken,
+        category: ''
+      });
+      this.persist();
+    }
   }
 
   /** Page ID & Access Token didapat user sendiri dari Meta for Developers (lihat README). */
-  updateCredentials({ pageId, pageAccessToken, pageName }) {
+  updateCredentials({ pageId, pageAccessToken, pageName, category }) {
     if (pageId !== undefined) this.pageId = pageId;
     if (pageAccessToken !== undefined) this.pageAccessToken = pageAccessToken;
     if (pageName !== undefined && pageName) this.pageName = pageName;
     this.mode = (this.pageId && this.pageAccessToken) ? 'PRODUCTION' : 'SANDBOX';
+
+    if (this.pageId && this.pageAccessToken) {
+      const idx = this.savedPages.findIndex((p) => p.id === this.pageId);
+      const pageEntry = {
+        id: this.pageId,
+        name: this.pageName,
+        accessToken: this.pageAccessToken,
+        category: category || ''
+      };
+      if (idx >= 0) {
+        this.savedPages[idx] = pageEntry;
+      } else {
+        this.savedPages.push(pageEntry);
+      }
+    }
+    this.persist();
+  }
+
+  /**
+   * Tarik semua daftar Fanpage yang dikelola user lewat User Access Token.
+   * Endpoint Graph API /{user-id}/accounts mengembalikan ID, nama, dan Page Access Token tiap page.
+   */
+  async fetchUserPages(userAccessToken) {
+    if (!userAccessToken || !userAccessToken.trim()) {
+      throw new Error('User Access Token tidak boleh kosong.');
+    }
+    try {
+      const res = await axios.get(`https://graph.facebook.com/${GRAPH_API_VERSION}/me/accounts`, {
+        params: {
+          fields: 'id,name,category,access_token,tasks',
+          limit: 50,
+          access_token: userAccessToken.trim()
+        },
+        timeout: 15000
+      });
+
+      const pages = (res.data?.data || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category || '',
+        accessToken: p.access_token
+      }));
+
+      return pages;
+    } catch (error) {
+      throw new Error(this.describeUploadError(error.response?.data, error.message));
+    }
+  }
+
+  /** Ganti halaman aktif dari salah satu halaman yang sudah tersimpan. */
+  switchActivePage(pageId) {
+    const target = this.savedPages.find((p) => p.id === pageId);
+    if (!target) {
+      throw new Error('Halaman tidak ditemukan di daftar tersimpan.');
+    }
+    this.pageId = target.id;
+    this.pageName = target.name;
+    this.pageAccessToken = target.accessToken;
+    this.mode = 'PRODUCTION';
+    this.persist();
+    return { success: true, pageName: this.pageName };
+  }
+
+  /** Hapus halaman dari daftar tersimpan. */
+  removeSavedPage(pageId) {
+    this.savedPages = this.savedPages.filter((p) => p.id !== pageId);
+    if (this.pageId === pageId) {
+      if (this.savedPages.length > 0) {
+        const next = this.savedPages[0];
+        this.pageId = next.id;
+        this.pageName = next.name;
+        this.pageAccessToken = next.accessToken;
+        this.mode = 'PRODUCTION';
+      } else {
+        this.disconnect();
+      }
+    }
     this.persist();
   }
 
@@ -46,7 +135,8 @@ class FacebookService {
       pageId: this.pageId,
       pageAccessToken: this.pageAccessToken,
       pageName: this.pageName,
-      mode: this.mode
+      mode: this.mode,
+      savedPages: this.savedPages
     });
   }
 
@@ -65,7 +155,13 @@ class FacebookService {
       isConnected: this.isConnected,
       mode: this.mode,
       pageName: this.pageName,
-      pageId: this.pageId ? `${this.pageId.slice(0, 4)}...${this.pageId.slice(-4)}` : ''
+      pageId: this.pageId ? `${this.pageId.slice(0, 4)}...${this.pageId.slice(-4)}` : '',
+      savedPages: (this.savedPages || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category || '',
+        isActive: p.id === this.pageId
+      }))
     };
   }
 

@@ -44,6 +44,10 @@ app.use(cors({
       if (/^192\.168\.\d+\.\d+$|^10\.\d+\.\d+\.\d+$|^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(hostname)) {
         return callback(null, true);
       }
+      // Izinkan Cloudflare Tunnel (akses HP dari luar jaringan)
+      if (hostname.endsWith('.trycloudflare.com')) {
+        return callback(null, true);
+      }
     } catch {}
     callback(new Error('Origin tidak diizinkan oleh CORS'));
   }
@@ -351,6 +355,40 @@ app.post('/api/shorts/:id/insights', async (req, res) => {
   res.json({ success: true, data: insights });
 });
 
+// Render ulang video dari naskah tersimpan — dipakai tombol "Render ulang" di Riwayat ketika
+// file MP4-nya hilang atau hasil render sebelumnya gagal/korup. Naskah, adegan, tema, durasi,
+// dan niche diambil dari catatan riwayat sehingga user tidak perlu mengisi ulang apapun.
+app.post('/api/shorts/:id/rerender', async (req, res) => {
+  const item = shortsHistory.find((s) => s.id === req.params.id);
+  if (!item) return res.status(404).json({ success: false, message: 'Short tidak ditemukan di riwayat.' });
+
+  try {
+    const renderedVideo = await renderOrchestrator.renderShort({
+      title: item.title,
+      narration: item.narration,
+      scenes: item.scenes,
+      themeId: item.themeId || 'cyberpunk',
+      durationSeconds: item.renderedVideo?.durationSeconds || item.durationSeconds,
+      niche: item.niche
+    });
+
+    item.renderedVideo = renderedVideo;
+
+    // Lama uploadResult masih disimpan (facebookVideoUrl tetap valid), tapi URL file lokal
+    // lama sudah tidak relevan karena MP4-nya sudah diganti — nullkan supaya UI tidak sajikan
+    // link rusak ke file yang sudah tidak ada.
+    if (item.uploadResult) {
+      item.uploadResult.localVideoUrl = null;
+      item.uploadResult.videoUrl = null;
+    }
+
+    dbService.saveHistory(shortsHistory);
+    res.json({ success: true, data: item });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Pengaturan Persisten (Database)
 app.get('/api/settings', (req, res) => {
   res.json({
@@ -535,6 +573,60 @@ app.post('/api/facebook/verify', async (req, res) => {
 app.post('/api/facebook/disconnect', (req, res) => {
   facebookService.disconnect();
   res.json({ success: true, facebookStatus: facebookService.getStatus() });
+});
+
+// Ambil daftar semua Fanpage yang dikelola user lewat User Access Token
+app.post('/api/facebook/fetch-pages', async (req, res) => {
+  try {
+    const { userAccessToken } = req.body;
+    const pages = await facebookService.fetchUserPages(userAccessToken);
+    res.json({ success: true, data: pages });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Pilih salah satu halaman dari hasil fetch untuk dihubungkan & disimpan
+app.post('/api/facebook/select-page', (req, res) => {
+  try {
+    const { pageId, pageName, pageAccessToken, category } = req.body;
+    facebookService.updateCredentials({ pageId, pageAccessToken, pageName, category });
+    res.json({
+      success: true,
+      data: dbService.getFacebookConfig(),
+      facebookStatus: facebookService.getStatus()
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Ganti halaman aktif dari daftar halaman tersimpan
+app.post('/api/facebook/switch-page', (req, res) => {
+  try {
+    const { pageId } = req.body;
+    const result = facebookService.switchActivePage(pageId);
+    res.json({
+      success: true,
+      data: result,
+      facebookStatus: facebookService.getStatus()
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Hapus halaman dari daftar tersimpan
+app.delete('/api/facebook/saved-pages/:id', (req, res) => {
+  try {
+    facebookService.removeSavedPage(req.params.id);
+    res.json({
+      success: true,
+      facebookStatus: facebookService.getStatus()
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 });
 
 // Penjadwal Otomatis 3x Seminggu (Scheduler)

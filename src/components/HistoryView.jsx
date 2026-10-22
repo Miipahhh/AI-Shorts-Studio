@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw, Upload, Send } from 'lucide-react';
+import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw, Upload, Send, RotateCcw } from 'lucide-react';
 import VideoPreviewModal from './ui/VideoPreviewModal.jsx';
 import ShortDetailModal from './ui/ShortDetailModal.jsx';
 import axios from 'axios';
@@ -25,6 +25,7 @@ export default function HistoryView({ onNavigate }) {
   const [refreshingId, setRefreshingId] = useState(null);
   const [uploadingId, setUploadingId] = useState(null);
   const [publishingId, setPublishingId] = useState(null);
+  const [rerenderingId, setRerenderingId] = useState(null);
   const [isBulkPublishing, setIsBulkPublishing] = useState(false);
 
   useEffect(() => {
@@ -166,6 +167,27 @@ export default function HistoryView({ onNavigate }) {
     startContinuation(item);
     if (onNavigate) onNavigate('studio');
     toast.success(`Lanjutan "${item.title}" siap direview di tab Studio.`, { duration: 4000 });
+  };
+
+  const handleRerender = async (item) => {
+    const ok = await confirmAction(
+      `Render ulang "${item.title}"? File MP4 lama akan diganti.`,
+      { title: 'Render ulang video' }
+    );
+    if (!ok) return;
+    setRerenderingId(item.id);
+    try {
+      const res = await axios.post(`/api/shorts/${item.id}/rerender`);
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setShorts((prev) => prev.map((s) => (s.id === item.id ? updated : s)));
+        toast.success(`"${item.title}" berhasil dirender ulang.`, { duration: 4000 });
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal merender ulang video.');
+    } finally {
+      setRerenderingId(null);
+    }
   };
 
   const draftCount = useMemo(
@@ -343,6 +365,16 @@ export default function HistoryView({ onNavigate }) {
                       title="Buat naskah lanjutan (Part berikutnya) dari video ini"
                     >
                       <Repeat size={15} />
+                    </button>
+                  )}
+                  {item.narration && item.type !== 'AUTO_SCHEDULED_BLOCKED' && (
+                    <button
+                      className="icon-btn"
+                      title="Render ulang video dari naskah tersimpan"
+                      onClick={() => handleRerender(item)}
+                      disabled={rerenderingId === item.id}
+                    >
+                      {rerenderingId === item.id ? <span className="spinner" /> : <RotateCcw size={15} />}
                     </button>
                   )}
                   <button

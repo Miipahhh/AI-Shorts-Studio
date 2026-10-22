@@ -29,6 +29,10 @@ public/videos/*
 # (its own git repo) — never commit it as part of this project
 /MoneyPrinterTurbo/
 
+# Binaries (e.g. cloudflared)
+bin/
+*.exe
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

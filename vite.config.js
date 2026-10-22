@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -17,6 +18,10 @@ export default defineConfig({
         // proxy-nya yang menyerah duluan.
         timeout: 0,
         proxyTimeout: 0
+      },
+      '/footage': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
       }
     }
   }

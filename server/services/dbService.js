@@ -37,7 +37,8 @@ class DatabaseService {
         pageName: 'AI Shorts Studio Page',
         pageId: '',
         pageAccessToken: '',
-        mode: 'SANDBOX'
+        mode: 'SANDBOX',
+        savedPages: []
       },
       videoConfig: {
         provider: 'template', // 'template' (FFmpeg, gratis) | 'fal_ai' (AI video generation, berbayar) | 'moneyprinter' (MoneyPrinterTurbo, footage stok asli)
