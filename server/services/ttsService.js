@@ -1,4 +1,3 @@
-import { EdgeTTS } from 'edge-tts-universal';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -105,30 +104,47 @@ class TTSService {
   }
 
   /**
-   * Sintesis teks narasi jadi file MP3 nyata pakai suara neural Microsoft Edge (gratis,
-   * tanpa API key — layanan tidak resmi/reverse-engineered dari fitur Read Aloud Edge,
-   * jadi bisa saja berhenti berfungsi kalau Microsoft mengubah sesuatu di sisi mereka).
+   * Sintesis teks narasi jadi file MP3 nyata pakai suara neural Microsoft Edge.
+   * Langsung memakai Python edge-tts 7.3.1 via venv (Node edge-tts-universal memblok event loop
+   * karena perubahan handshake WSS Microsoft — dilewati sepenuhnya).
    */
   async synthesize(text, { voice, rate, pitch, filename } = {}) {
     const clean = this.humanize(text);
     if (!clean) throw new Error('Teks narasi kosong, tidak ada yang bisa disintesis.');
 
-    // Batas 9000 karakter (~3000 karakter cuma cukup untuk ±40 detik bicara, sementara
-    // konten cerita/dongeng bisa butuh sampai 5 menit narasi).
-    const tts = new EdgeTTS(clean.slice(0, 9000), voice || this.voice, {
-      rate: rate || this.rate,
-      volume: '+0%',
-      pitch: pitch || this.pitch
-    });
-    const result = await tts.synthesize();
-    const buffer = Buffer.from(await result.audio.arrayBuffer());
-
     const outName = filename || `narration_${Date.now()}.mp3`;
     const filePath = path.join(this.audioDir, outName);
-    fs.writeFileSync(filePath, buffer);
+    const targetVoice = voice || this.voice;
+    const targetRate = rate || this.rate;
+    const targetPitch = pitch || this.pitch;
+
+    await this.synthesizeWithPython(clean.slice(0, 9000), {
+      voice: targetVoice,
+      rate: targetRate,
+      pitch: targetPitch,
+      filePath
+    });
 
     const durationSeconds = await this.getAudioDuration(filePath);
     return { filePath, filename: outName, durationSeconds };
+  }
+
+  /** Fallback sintesis memakai engine Python edge-tts venv yang ter-update */
+  async synthesizeWithPython(text, { voice, rate, pitch, filePath }) {
+    const pythonExe = path.join(__dirname, '../../MoneyPrinterTurbo/.venv/Scripts/python.exe');
+    if (!fs.existsSync(pythonExe)) {
+      throw new Error('Python virtual environment MoneyPrinterTurbo tidak ditemukan.');
+    }
+
+    const args = ['-m', 'edge_tts', '--voice', voice, '--text', text, '--write-media', filePath];
+    if (rate && rate !== '+0%') {
+      args.push('--rate', rate);
+    }
+    if (pitch && pitch !== '+0Hz') {
+      args.push('--pitch', pitch);
+    }
+
+    await execFileAsync(pythonExe, args, { timeout: 30000 });
   }
 
   /** Contoh suara pendek untuk tombol "Dengar contoh" di Pengaturan. */

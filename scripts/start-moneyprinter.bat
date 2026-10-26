@@ -57,10 +57,8 @@ if not exist "config.toml" (
     pause >nul
 )
 
-echo Menyiapkan environment Python lewat uv sync...
-call uv sync --frozen
-if %errorlevel% neq 0 (
-    echo uv sync --frozen gagal, mencoba tanpa --frozen...
+if not exist ".venv\Scripts\python.exe" (
+    echo Menyiapkan environment Python lewat uv sync...
     call uv sync
 )
 echo.
@@ -75,7 +73,11 @@ echo  - Menutup jendela ini memutus koneksi, dan render video akan gagal
 echo    dengan pesan "server tidak terjangkau".
 echo.
 
-uv run python main.py
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" main.py
+) else (
+    uv run python main.py
+)
 
 echo.
 echo Server MoneyPrinterTurbo berhenti. Jendela ini dibiarkan terbuka supaya

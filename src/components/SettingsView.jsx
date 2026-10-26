@@ -72,6 +72,11 @@ export default function SettingsView({ onSaved }) {
 
   // Daftar model diambil langsung dari endpoint yang dikonfigurasi (format OpenAI /models).
   const fetchModels = async (endpoint) => {
+    if (!endpoint) return;
+    if (endpoint.includes('generativelanguage.googleapis.com')) {
+      setModels(FALLBACK_MODELS);
+      return;
+    }
     setModelsLoading(true);
     try {
       const res = await axios.get(`${endpoint.replace(/\/+$/, '')}/models`, { timeout: 5000 });
